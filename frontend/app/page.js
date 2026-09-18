@@ -65,60 +65,78 @@ export default function LoginPage() {
   }, [errors]);
 
   return (
-    <div className="page">
-      <main className="card auth-card">
-        <div className="brand-badge">
-          <img src="/logo.jpg" alt="Company logo" className="logo" />
+    <div className="login-wrapper">
+      {/* ── Left: Hero panel ── */}
+      <div className="hero-panel">
+        <div className="hero-brand-badge">
+          <i className="fa-solid fa-headset" />
+          Customer Connect &amp; Support
         </div>
-        <div className="card-header">
-          <div className="icon-badge">
-            <i className="fa-solid fa-user-check"></i>
+        <div className="hero-branding">
+          <img src="/logo.jpg" alt="Leslie's" className="hero-logo" />
+          <p className="hero-tagline">We know pools.</p>
+          <svg className="hero-wave" viewBox="0 0 220 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 14 C40 2, 80 2, 110 10 C140 18, 180 18, 218 6" stroke="#0284c7" strokeWidth="3.5" strokeLinecap="round" fill="none" />
+          </svg>
+        </div>
+      </div>
+
+      {/* ── Right: Form panel ── */}
+      <div className="form-panel">
+        <div className="form-panel-inner">
+          <img src="/logo.jpg" alt="Leslie's logo" className="form-logo" />
+          <h1 className="form-title">Sign In</h1>
+          <p className="form-subtitle">Employee authorization required.</p>
+
+          <form className="login-form" onSubmit={handleSubmit}>
+            {/* Employee ID */}
+            <div className="field-wrapper">
+              <i className="fa-solid fa-id-badge field-icon" />
+              <input
+                type="text"
+                className="field-input"
+                placeholder="Employee ID"
+                value={form.employeeId}
+                onChange={(e) => handleChange('employeeId', e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+
+            {/* Store No. */}
+            <div className="field-wrapper">
+              <i className="fa-solid fa-store field-icon" />
+              <input
+                type="text"
+                className="field-input"
+                placeholder="Store No."
+                value={form.storeNo}
+                onChange={(e) => handleChange('storeNo', e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+
+            <button type="submit" className="btn-signin" disabled={submitting}>
+              {submitting ? (
+                <>
+                  <i className="fa-solid fa-circle-notch fa-spin" />
+                  Signing in…
+                </>
+              ) : (
+                'Sign In'
+              )}
+            </button>
+          </form>
+
+          {helperText && <div className="login-alert error">{helperText}</div>}
+          {status && <div className="login-alert info">{status}</div>}
+
+          <div className="login-footer-icons">
+            <i className="fa-solid fa-tree" style={{ color: '#0077c8' }} />
+            <i className="fa-solid fa-water" style={{ color: '#38bdf8' }} />
+            <i className="fa-solid fa-tree" style={{ color: '#0077c8' }} />
           </div>
-          <div className="title">Employee Login</div>
-          <p className="muted">Enter your Employee ID and Store No. to continue.</p>
         </div>
-
-        <form className="form" onSubmit={handleSubmit}>
-          <label className="input">
-            <span><i className="fa-solid fa-id-badge"></i>Employee ID</span>
-            <input
-              type="text"
-              value={form.employeeId}
-              onChange={(e) => handleChange('employeeId', e.target.value)}
-              placeholder=""
-              autoComplete="off"
-            />
-          </label>
-          <label className="input">
-            <span><i className="fa-solid fa-store"></i>Store No.</span>
-            <input
-              type="text"
-              value={form.storeNo}
-              onChange={(e) => handleChange('storeNo', e.target.value)}
-              placeholder=""
-              autoComplete="off"
-            />
-          </label>
-          <button type="submit" className="btn block primary" disabled={submitting}>
-            {submitting ? (
-              <>
-                <i className="fa-solid fa-circle-notch fa-spin"></i>
-                Signing in…
-              </>
-            ) : (
-              <>
-                <i className="fa-solid fa-arrow-right-to-bracket"></i>
-                Login
-              </>
-            )}
-          </button>
-        </form>
-
-        <div className="card-footer">
-          {helperText && <div className="error">{helperText}</div>}
-          {status && <div className="status">{status}</div>}
-        </div>
-      </main>
+      </div>
     </div>
   );
 }

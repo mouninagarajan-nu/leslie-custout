@@ -199,68 +199,79 @@ export default function ContactsClient() {
   };
 
   return (
-    <div className="page">
-      <main className="card welcome-card">
-        <header className="welcome-header">
-          <div className="brand-badge">
-            <img src="/logo.jpg" alt="Company logo" className="logo" />
-          </div>
-          <div className="welcome-headings">
-            <h1>Welcome back, {employeeId || 'Employee'}!</h1>
-            <p className="muted">Store: {storeNo || 'Not provided'}</p>
-          </div>
-          <div className="nav-actions">
-            <button className="btn ghost" onClick={() => router.push('/')}>
-              <i className="fa-solid fa-house"></i>
-              Home
-            </button>
-            <button className="btn ghost" onClick={() => router.push('/')}>
-              <i className="fa-solid fa-arrow-right-from-bracket"></i>
-              Log out
-            </button>
-          </div>
-        </header>
-
-        <section className="data-section">
-          <div className="data-header">
-            <div>
-              <p className="eyebrow">Activity</p>
-              <h3>Customer Contacts</h3>
+    <div className="dash-wrapper">
+      {/* ── Top navigation bar ── */}
+      <nav className="dash-navbar">
+        <div className="dash-navbar-brand">
+          <img src="/logo.jpg" alt="Leslie's logo" className="dash-navbar-logo" />
+          <div>
+            <div className="dash-navbar-title">Customer Connect &amp; Support</div>
+            <div className="dash-navbar-meta">
+              {employeeId && <>Employee {employeeId}{storeNo && <> · Store {storeNo}</>}</>}
             </div>
-            <button className="btn ghost" disabled={saveState.saving} onClick={handleSave}>
+          </div>
+        </div>
+        <div className="dash-navbar-actions">
+          <button className="btn ghost" onClick={() => router.push('/')}>
+            <i className="fa-solid fa-house" />
+            Home
+          </button>
+          <button className="btn ghost" onClick={() => router.push('/')}>
+            <i className="fa-solid fa-arrow-right-from-bracket" />
+            Log out
+          </button>
+        </div>
+      </nav>
+
+      {/* ── Main body ── */}
+      <div className="dash-body">
+        <div className="section-card">
+          {/* Section header */}
+          <div className="section-header">
+            <div>
+              <p className="section-label">Activity</p>
+              <h2 className="section-title">Customer Contacts</h2>
+            </div>
+            <button className="btn primary" disabled={saveState.saving} onClick={handleSave}>
               {saveState.saving ? (
                 <>
-                  <i className="fa-solid fa-circle-notch fa-spin"></i>
+                  <i className="fa-solid fa-circle-notch fa-spin" />
                   Saving…
                 </>
               ) : (
                 <>
-                  <i className="fa-solid fa-paper-plane"></i>
+                  <i className="fa-solid fa-paper-plane" />
                   Submit
                 </>
               )}
             </button>
           </div>
+
+          {/* Toast */}
           {saveState.message && (
             <div className="toast-notification">
-              <i className="fa-solid fa-circle-check"></i>
+              <i className="fa-solid fa-circle-check" />
               <span>{saveState.message}</span>
               <button
                 type="button"
                 className="toast-close"
                 onClick={() => setSaveState((prev) => ({ ...prev, message: '' }))}
               >
-                <i className="fa-solid fa-xmark"></i>
+                <i className="fa-solid fa-xmark" />
               </button>
             </div>
           )}
+
+          {/* No store */}
           {!storeNo && (
             <div className="table-wrap">
-              <p className="muted" style={{ padding: 16 }}>
+              <p className="muted" style={{ padding: 20 }}>
                 Please provide a store number from the login page.
               </p>
             </div>
           )}
+
+          {/* Table */}
           {storeNo && (
             <div className="table-wrap">
               <table className="contacts-table">
@@ -318,7 +329,7 @@ export default function ContactsClient() {
                             {contact.customer_name || '—'}
                             {isCompleted && (
                               <span className="completed-badge">
-                                <i className="fa-solid fa-check"></i>
+                                <i className="fa-solid fa-check" />
                                 Completed
                               </span>
                             )}
@@ -364,7 +375,7 @@ export default function ContactsClient() {
                                       title="Edit note"
                                       onClick={() => startEditNote(originalIndex, contact.notes)}
                                     >
-                                      <i className="fa-solid fa-pen"></i>
+                                      <i className="fa-solid fa-pen" />
                                     </button>
                                     <button
                                       type="button"
@@ -373,7 +384,7 @@ export default function ContactsClient() {
                                       disabled={isSavingNote}
                                       onClick={() => deleteNote(originalIndex)}
                                     >
-                                      <i className="fa-solid fa-trash"></i>
+                                      <i className="fa-solid fa-trash" />
                                     </button>
                                   </>
                                 ) : (
@@ -382,7 +393,7 @@ export default function ContactsClient() {
                                     className="add-note-btn"
                                     onClick={() => startEditNote(originalIndex, '')}
                                   >
-                                    <i className="fa-solid fa-plus"></i>
+                                    <i className="fa-solid fa-plus" />
                                     Add note
                                   </button>
                                 )}
@@ -405,7 +416,7 @@ export default function ContactsClient() {
                                   disabled={isSavingNote}
                                   onClick={() => saveEditNote(originalIndex)}
                                 >
-                                  <i className={isSavingNote ? 'fa-solid fa-circle-notch fa-spin' : 'fa-solid fa-check'}></i>
+                                  <i className={isSavingNote ? 'fa-solid fa-circle-notch fa-spin' : 'fa-solid fa-check'} />
                                 </button>
                                 <button
                                   type="button"
@@ -414,7 +425,7 @@ export default function ContactsClient() {
                                   disabled={isSavingNote}
                                   onClick={cancelEditNote}
                                 >
-                                  <i className="fa-solid fa-xmark"></i>
+                                  <i className="fa-solid fa-xmark" />
                                 </button>
                               </div>
                             )}
@@ -436,8 +447,8 @@ export default function ContactsClient() {
               </table>
             </div>
           )}
-        </section>
-      </main>
+        </div>
+      </div>
     </div>
   );
 }
