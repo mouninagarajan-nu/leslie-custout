@@ -34,12 +34,12 @@ export default function ContactsClient() {
     );
   };
 
-  const fetchContacts = async () => {
+  const fetchContacts = async (assignNew = false) => {
     if (!storeNo || !employeeId) return;
     setContactsState({ loading: true, error: '' });
     try {
       const response = await fetch(
-        `${API_BASE}/api/customer-contacts?openStore=${encodeURIComponent(storeNo)}&employeeId=${encodeURIComponent(employeeId)}`
+        `${API_BASE}/api/customer-contacts?openStore=${encodeURIComponent(storeNo)}&employeeId=${encodeURIComponent(employeeId)}&assign=${assignNew}`
       );
       if (!response.ok) {
         let details = '';
@@ -65,7 +65,8 @@ export default function ContactsClient() {
   };
 
   useEffect(() => {
-    fetchContacts();
+    // Only assign new tasks on initial component mount (when arriving from login or a fresh refresh)
+    fetchContacts(true);
   }, [storeNo, employeeId]);
 
   // Auto-dismiss save notification toast after 3 seconds
@@ -125,8 +126,8 @@ export default function ContactsClient() {
       }
       const body = await response.json().catch(() => ({}));
       setSaveState({ saving: false, message: body?.message || 'Saved' });
-      // Refresh the page data automatically after submit
-      await fetchContacts();
+      // Refresh the page data automatically after submit (without assigning new ones)
+      await fetchContacts(false);
     } catch (error) {
       setSaveState({ saving: false, message: error.message || 'Save failed' });
     }

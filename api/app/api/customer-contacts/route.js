@@ -15,6 +15,7 @@ export async function GET(request) {
   const openStore =
     searchParams.get('openStore') || searchParams.get('store') || searchParams.get('storeNumber');
   const employeeId = searchParams.get('employeeId') || searchParams.get('emp');
+  const assignNew = searchParams.get('assign') === 'true';
 
   if (!openStore) {
     return NextResponse.json({ error: 'openStore is required' }, { status: 400, headers: corsHeaders() });
@@ -33,11 +34,21 @@ export async function GET(request) {
     );
     const closedStores = closedRows.map((r) => r.closed_store);
 
-    if (closedStores.length > 0) {
+    if (closedStores.length > 0 && assignNew) {
+      // Count only *unresolved* tasks currently assigned to the user today,
+      // so they can keep pulling new tasks once they resolve their current ones.
       const { rows: countRows } = await client.query(
         `select count(*)::int as count
-         from employee_daily_assignments
-         where employee_id = $1 and assigned_date = current_date and store_number = any($2::text[])`,
+         from employee_daily_assignments eda
+         join customer_assignment ca 
+           on ca.customer_name = eda.customer_name 
+          and ca.store_number = eda.store_number
+         where eda.employee_id = $1 
+           and eda.assigned_date = current_date 
+           and eda.store_number = any($2::text[])
+           and coalesce(ca.contacted_to_store, 'N') <> 'Y'
+           and coalesce(ca.attempted_to_store, 'N') <> 'Y'
+           and coalesce(ca.do_not_attempt, 'N') <> 'Y'`,
         [employeeId, closedStores]
       );
       const needed = DAILY_QUOTA - countRows[0].count;
