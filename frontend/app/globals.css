@@ -818,41 +818,391 @@ input[type='checkbox']:disabled {
 }
 
 /* =========================================================
-   Responsive
+   Mobile Contact Card Layout
    ========================================================= */
-@media (max-width: 800px) {
+
+/* Scrollable cards container — hidden by default, shown on mobile */
+.contact-cards {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 12px;
+  background: var(--gray-100);
+}
+
+/* ── Individual card ── */
+.contact-card {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 2px 10px rgba(7, 30, 56, 0.08);
+  border: 1px solid var(--gray-200);
+  overflow: hidden;
+  transition: box-shadow 0.18s;
+  border-left: 4px solid var(--accent);
+}
+
+.contact-card.card-completed {
+  border-left-color: var(--success);
+  background: #f8fffe;
+}
+
+.contact-card.card-disabled {
+  border-left-color: var(--gray-300);
+  opacity: 0.75;
+}
+
+/* ── Card top band: avatar + name + badge ── */
+.contact-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.contact-card-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--navy-700);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
+.contact-card-completed .contact-card-avatar {
+  background: var(--success);
+}
+
+.contact-card-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.contact-card-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--gray-900);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Meta row (phone + store pills) ── */
+.contact-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--gray-100);
+  background: var(--gray-50);
+}
+
+.contact-card-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--gray-700);
+  font-weight: 500;
+}
+
+.contact-card-pill i {
+  font-size: 11px;
+  color: var(--accent);
+}
+
+/* ── Checkboxes section ── */
+.contact-card-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 4px 0;
+}
+
+.contact-card-check-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gray-700);
+  border-bottom: 1px solid var(--gray-100);
+  cursor: pointer;
+  transition: background 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.contact-card-check-row:last-child {
+  border-bottom: none;
+}
+
+.contact-card-check-row:active {
+  background: #f0f7ff;
+}
+
+.contact-card-check-row input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.contact-card-check-row input[type='checkbox']:disabled {
+  opacity: 0.4;
+}
+
+.contact-card-check-icon {
+  font-size: 14px;
+  color: var(--gray-400);
+  margin-left: auto;
+}
+
+/* ── Notes section ── */
+.contact-card-notes {
+  padding: 10px 16px 14px;
+  background: var(--gray-50);
+  border-top: 1px solid var(--gray-100);
+}
+
+.contact-card-notes-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gray-500);
+  margin-bottom: 8px;
+}
+
+/* Sticky submit bar on mobile */
+.mobile-submit-bar {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-top: 1px solid var(--gray-200);
+  padding: 12px 16px env(safe-area-inset-bottom, 0px);
+  box-shadow: 0 -4px 20px rgba(7, 30, 56, 0.12);
+}
+
+.mobile-submit-bar .btn {
+  width: 100%;
+  padding: 15px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: var(--radius-md);
+  justify-content: center;
+  letter-spacing: 0.04em;
+}
+
+/* =========================================================
+   Responsive — Mobile first (≤ 640px)
+   ========================================================= */
+@media (max-width: 640px) {
+
+  /* ── Login ── */
+  .login-wrapper {
+    grid-template-columns: 1fr;
+    min-height: 100svh;
+  }
+
+  .hero-panel {
+    display: none;
+  }
+
+  .form-panel {
+    padding: 48px 20px 40px;
+    min-height: 100svh;
+    align-items: center;
+    padding-top: 60px;
+  }
+
+  .form-panel-inner {
+    max-width: 100%;
+  }
+
+  .form-logo {
+    height: 44px;
+    margin-bottom: 24px;
+  }
+
+  .form-title {
+    font-size: 22px;
+  }
+
+  .btn-signin {
+    padding: 15px;
+    font-size: 14px;
+  }
+
+  /* ── Navbar ── */
+  .dash-navbar {
+    padding: 0 12px;
+    height: 54px;
+    min-height: 54px;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+  }
+
+  .dash-navbar-brand {
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .dash-navbar-logo {
+    height: 26px;
+    flex-shrink: 0;
+  }
+
+  .dash-navbar-title {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .dash-navbar-meta {
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .dash-navbar-actions {
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  /* Icon-only buttons on mobile — hide the text label */
+  .dash-navbar-actions .btn {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    gap: 0;
+    font-size: 14px;
+  }
+
+  .dash-navbar-actions .btn .btn-label {
+    display: none;
+  }
+
+  /* ── Dashboard body ── */
+  .dash-body {
+    padding: 0 0 92px;
+    background: var(--gray-100);
+    /* bottom padding leaves room for sticky submit bar */
+  }
+
+  /* ── Section card — transparent on mobile (cards pull out) ── */
+  .section-card {
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .section-header {
+    padding: 14px 16px 12px;
+    flex-wrap: nowrap;
+    align-items: center;
+    background: var(--white);
+    border-bottom: 1px solid var(--gray-200);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .section-title {
+    font-size: 16px;
+  }
+
+  /* Hide the inline submit button on mobile (use sticky bar instead) */
+  .section-header .btn.primary {
+    display: none;
+  }
+
+  /* ── Table — hide on mobile ── */
+  .table-wrap .contacts-table {
+    display: none;
+  }
+
+  /* ── Cards — show on mobile ── */
+  .contact-cards {
+    display: flex;
+  }
+
+  /* ── Sticky submit bar ── */
+  .mobile-submit-bar {
+    display: block;
+  }
+
+  /* ── Toast — full width on mobile ── */
+  .toast-notification {
+    left: 12px;
+    right: 12px;
+    top: 12px;
+    font-size: 13px;
+  }
+
+  .toast-top {
+    left: 12px;
+    right: 12px;
+    top: 12px;
+    font-size: 13px;
+  }
+}
+
+/* =========================================================
+   Responsive — Tablet (641px – 1024px)
+   ========================================================= */
+@media (min-width: 641px) and (max-width: 1024px) {
   .login-wrapper {
     grid-template-columns: 1fr;
   }
 
   .hero-panel {
     display: none;
-    /* hide hero on small screens */
   }
 
   .form-panel {
-    padding: 40px 24px;
+    padding: 60px 40px;
+  }
+
+  .form-panel-inner {
+    max-width: 420px;
   }
 
   .dash-navbar {
-    padding: 0 16px;
-    height: auto;
-    min-height: 56px;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding-top: 10px;
-    padding-bottom: 10px;
+    padding: 0 24px;
   }
 
   .dash-body {
-    padding: 20px 12px 48px;
-  }
-
-  .section-header {
-    padding: 14px 16px 12px;
+    padding: 24px 20px 64px;
   }
 
   .contacts-table {
+    min-width: 640px;
     font-size: 13px;
   }
 }

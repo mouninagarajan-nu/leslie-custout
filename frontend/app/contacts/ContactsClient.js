@@ -199,6 +199,88 @@ export default function ContactsClient() {
     persistNote(index, '');
   };
 
+  // ── Shared note cell renderer (used in both table and cards) ──
+  const renderNoteCell = (contact, originalIndex) => {
+    const canEdit = !!contact.is_actionable;
+    const isEditingNote = editingNoteIndex === originalIndex;
+    const isSavingNote = savingNoteIndex === originalIndex;
+    const rowNoteMessage = noteMessage?.index === originalIndex ? noteMessage : null;
+
+    return (
+      <>
+        {!canEdit && <span className="muted">{contact.notes || '—'}</span>}
+        {canEdit && !isEditingNote && (
+          <div className="note-view">
+            {contact.notes ? (
+              <>
+                <span className="note-text" title={contact.notes}>{contact.notes}</span>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Edit note"
+                  onClick={() => startEditNote(originalIndex, contact.notes)}
+                >
+                  <i className="fa-solid fa-pen" />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn danger"
+                  title="Delete note"
+                  disabled={isSavingNote}
+                  onClick={() => deleteNote(originalIndex)}
+                >
+                  <i className="fa-solid fa-trash" />
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="add-note-btn"
+                onClick={() => startEditNote(originalIndex, '')}
+              >
+                <i className="fa-solid fa-plus" />
+                Add note
+              </button>
+            )}
+          </div>
+        )}
+        {canEdit && isEditingNote && (
+          <div className="note-edit">
+            <input
+              type="text"
+              autoFocus
+              value={noteDraft}
+              placeholder="Add a note…"
+              onChange={(e) => setNoteDraft(e.target.value)}
+              disabled={isSavingNote}
+            />
+            <button
+              type="button"
+              className="icon-btn success"
+              title="Save note"
+              disabled={isSavingNote}
+              onClick={() => saveEditNote(originalIndex)}
+            >
+              <i className={isSavingNote ? 'fa-solid fa-circle-notch fa-spin' : 'fa-solid fa-check'} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              title="Cancel"
+              disabled={isSavingNote}
+              onClick={cancelEditNote}
+            >
+              <i className="fa-solid fa-xmark" />
+            </button>
+          </div>
+        )}
+        {rowNoteMessage && (
+          <div className={`note-message ${rowNoteMessage.type}`}>{rowNoteMessage.text}</div>
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="dash-wrapper">
       {/* ── Top navigation bar ── */}
@@ -215,11 +297,11 @@ export default function ContactsClient() {
         <div className="dash-navbar-actions">
           <button className="btn ghost" onClick={() => router.push('/')}>
             <i className="fa-solid fa-house" />
-            Home
+            <span className="btn-label">Home</span>
           </button>
           <button className="btn ghost" onClick={() => router.push('/')}>
             <i className="fa-solid fa-arrow-right-from-bracket" />
-            Log out
+            <span className="btn-label">Log out</span>
           </button>
         </div>
       </nav>
@@ -233,6 +315,7 @@ export default function ContactsClient() {
               <p className="section-label">Activity</p>
               <h2 className="section-title">Customer Contacts</h2>
             </div>
+            {/* Desktop submit button — hidden on mobile via CSS */}
             <button className="btn primary" disabled={saveState.saving} onClick={handleSave}>
               {saveState.saving ? (
                 <>
@@ -272,184 +355,270 @@ export default function ContactsClient() {
             </div>
           )}
 
-          {/* Table */}
           {storeNo && (
-            <div className="table-wrap">
-              <table className="contacts-table">
-                <thead>
-                  <tr>
-                    <th>Customer Name</th>
-                    <th>Phone Number</th>
-                    <th>Closed Store</th>
-                    <th className="col-checkbox">Do Not Attempt</th>
-                    <th className="col-checkbox">Contacted</th>
-                    <th className="col-checkbox">Attempted</th>
-                    <th className="col-notes">Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {contactsState.loading &&
-                    Array.from({ length: 5 }).map((_, i) => (
-                      <tr key={`skeleton-${i}`} className="skeleton-row">
-                        <td><span className="skeleton-bar" style={{ width: '75%' }} /></td>
-                        <td><span className="skeleton-bar" style={{ width: '60%' }} /></td>
-                        <td><span className="skeleton-bar" style={{ width: '35%' }} /></td>
-                        <td className="col-checkbox"><span className="skeleton-checkbox" /></td>
-                        <td className="col-checkbox"><span className="skeleton-checkbox" /></td>
-                        <td className="col-checkbox"><span className="skeleton-checkbox" /></td>
-                        <td className="col-notes"><span className="skeleton-bar" style={{ width: '85%' }} /></td>
-                      </tr>
-                    ))}
-                  {!contactsState.loading && contactsState.error && (
+            <>
+              {/* ═══════════════════════════════════════
+                  DESKTOP: Table view (hidden on mobile)
+                  ═══════════════════════════════════════ */}
+              <div className="table-wrap">
+                <table className="contacts-table">
+                  <thead>
                     <tr>
-                      <td colSpan={7} className="empty-cell error-cell">{contactsState.error}</td>
+                      <th>Customer Name</th>
+                      <th>Phone Number</th>
+                      <th>Closed Store</th>
+                      <th className="col-checkbox">Do Not Attempt</th>
+                      <th className="col-checkbox">Contacted</th>
+                      <th className="col-checkbox">Attempted</th>
+                      <th className="col-notes">Notes</th>
                     </tr>
-                  )}
-                  {!contactsState.loading &&
-                    !contactsState.error &&
-                    contacts.map((contact, originalIndex) => {
-                      const isContacted = toBool(contact.contacted_to_store);
-                      const isAttempted = toBool(contact.attempted_to_store);
-                      const isDoNotAttempt = toBool(contact.do_not_attempt);
-                      const attemptedChecked = isAttempted || isContacted;
-                      const canEdit = !!contact.is_actionable;
-                      const isCompleted = !!contact.is_completed;
-                      const rowClassName = isCompleted ? 'row-completed' : !canEdit ? 'row-disabled' : '';
-                      const closedStore =
-                        contact.closed_store_number ??
-                        contact.store_number ??
-                        contact.closed_store ??
-                        '—';
-                      const isEditingNote = editingNoteIndex === originalIndex;
-                      const isSavingNote = savingNoteIndex === originalIndex;
-                      const rowNoteMessage = noteMessage?.index === originalIndex ? noteMessage : null;
+                  </thead>
+                  <tbody>
+                    {contactsState.loading &&
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <tr key={`skeleton-${i}`} className="skeleton-row">
+                          <td><span className="skeleton-bar" style={{ width: '75%' }} /></td>
+                          <td><span className="skeleton-bar" style={{ width: '60%' }} /></td>
+                          <td><span className="skeleton-bar" style={{ width: '35%' }} /></td>
+                          <td className="col-checkbox"><span className="skeleton-checkbox" /></td>
+                          <td className="col-checkbox"><span className="skeleton-checkbox" /></td>
+                          <td className="col-checkbox"><span className="skeleton-checkbox" /></td>
+                          <td className="col-notes"><span className="skeleton-bar" style={{ width: '85%' }} /></td>
+                        </tr>
+                      ))}
+                    {!contactsState.loading && contactsState.error && (
+                      <tr>
+                        <td colSpan={7} className="empty-cell error-cell">{contactsState.error}</td>
+                      </tr>
+                    )}
+                    {!contactsState.loading &&
+                      !contactsState.error &&
+                      contacts.map((contact, originalIndex) => {
+                        const isContacted = toBool(contact.contacted_to_store);
+                        const isAttempted = toBool(contact.attempted_to_store);
+                        const isDoNotAttempt = toBool(contact.do_not_attempt);
+                        const attemptedChecked = isAttempted || isContacted;
+                        const canEdit = !!contact.is_actionable;
+                        const isCompleted = !!contact.is_completed;
+                        const rowClassName = isCompleted ? 'row-completed' : !canEdit ? 'row-disabled' : '';
+                        const closedStore =
+                          contact.closed_store_number ??
+                          contact.store_number ??
+                          contact.closed_store ??
+                          '—';
 
-                      return (
-                        <tr key={originalIndex} className={rowClassName}>
-                          <td>
-                            {contact.customer_name || '—'}
+                        return (
+                          <tr key={originalIndex} className={rowClassName}>
+                            <td>
+                              {contact.customer_name || '—'}
+                              {isCompleted && (
+                                <span className="completed-badge">
+                                  <i className="fa-solid fa-check" />
+                                  Completed
+                                </span>
+                              )}
+                            </td>
+                            <td>{contact.phone_number || '—'}</td>
+                            <td>{closedStore}</td>
+                            <td className="col-checkbox">
+                              <input
+                                type="checkbox"
+                                checked={isDoNotAttempt}
+                                onChange={canEdit ? () => toggleFlag(originalIndex, 'do_not_attempt') : undefined}
+                                disabled={!canEdit}
+                              />
+                            </td>
+                            <td className="col-checkbox">
+                              <input
+                                type="checkbox"
+                                checked={isContacted}
+                                onChange={canEdit ? () => toggleFlag(originalIndex, 'contacted_to_store') : undefined}
+                                disabled={!canEdit}
+                              />
+                            </td>
+                            <td className="col-checkbox">
+                              <input
+                                type="checkbox"
+                                checked={attemptedChecked}
+                                onChange={canEdit ? () => toggleFlag(originalIndex, 'attempted_to_store') : undefined}
+                                disabled={!canEdit}
+                              />
+                            </td>
+                            <td className="col-notes">
+                              {renderNoteCell(contact, originalIndex)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    {!contactsState.loading &&
+                      !contactsState.error &&
+                      contacts.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="empty-cell">No customers found for this store.</td>
+                        </tr>
+                      )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* ═══════════════════════════════════════
+                  MOBILE: Card view (hidden on desktop)
+                  ═══════════════════════════════════════ */}
+              <div className="contact-cards">
+                {contactsState.loading &&
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <div key={`card-skeleton-${i}`} className="contact-card">
+                      <div className="contact-card-header">
+                        <div className="contact-card-avatar" style={{ background: 'var(--gray-200)' }} />
+                        <div className="contact-card-header-info">
+                          <span className="skeleton-bar" style={{ width: '65%', height: 15, display: 'block' }} />
+                        </div>
+                      </div>
+                      <div className="contact-card-meta">
+                        <span className="skeleton-bar" style={{ width: 100, height: 26, borderRadius: 999 }} />
+                        <span className="skeleton-bar" style={{ width: 60, height: 26, borderRadius: 999 }} />
+                      </div>
+                    </div>
+                  ))}
+
+                {!contactsState.loading && contactsState.error && (
+                  <div className="contact-card">
+                    <div className="contact-card-header">
+                      <p className="muted" style={{ color: 'var(--danger)', margin: 0 }}>{contactsState.error}</p>
+                    </div>
+                  </div>
+                )}
+
+                {!contactsState.loading && !contactsState.error && contacts.length === 0 && (
+                  <div className="contact-card">
+                    <div className="contact-card-header">
+                      <p className="muted" style={{ margin: 0 }}>No customers found for this store.</p>
+                    </div>
+                  </div>
+                )}
+
+                {!contactsState.loading &&
+                  !contactsState.error &&
+                  contacts.map((contact, originalIndex) => {
+                    const isContacted = toBool(contact.contacted_to_store);
+                    const isAttempted = toBool(contact.attempted_to_store);
+                    const isDoNotAttempt = toBool(contact.do_not_attempt);
+                    const attemptedChecked = isAttempted || isContacted;
+                    const canEdit = !!contact.is_actionable;
+                    const isCompleted = !!contact.is_completed;
+                    const closedStore =
+                      contact.closed_store_number ??
+                      contact.store_number ??
+                      contact.closed_store ??
+                      '—';
+
+                    // Generate initials from customer name
+                    const nameParts = (contact.customer_name || '').trim().split(' ');
+                    const initials = nameParts.length >= 2
+                      ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`
+                      : (nameParts[0]?.[0] || '?');
+
+                    const avatarBg = isCompleted ? 'var(--success)' : !canEdit ? 'var(--gray-400)' : 'var(--navy-700)';
+
+                    const cardClass = [
+                      'contact-card',
+                      isCompleted ? 'card-completed' : '',
+                      !canEdit ? 'card-disabled' : '',
+                    ].filter(Boolean).join(' ');
+
+                    return (
+                      <div key={`card-${originalIndex}`} className={cardClass}>
+                        {/* Header: avatar + name */}
+                        <div className="contact-card-header">
+                          <div className="contact-card-avatar" style={{ background: avatarBg }}>
+                            {initials.toUpperCase()}
+                          </div>
+                          <div className="contact-card-header-info">
+                            <div className="contact-card-name">{contact.customer_name || '—'}</div>
                             {isCompleted && (
-                              <span className="completed-badge">
+                              <span className="completed-badge" style={{ marginLeft: 0, marginTop: 4, display: 'inline-flex' }}>
                                 <i className="fa-solid fa-check" />
                                 Completed
                               </span>
                             )}
-                          </td>
-                          <td>{contact.phone_number || '—'}</td>
-                          <td>{closedStore}</td>
-                          <td className="col-checkbox">
+                          </div>
+                        </div>
+
+                        {/* Pill meta: phone & store */}
+                        <div className="contact-card-meta">
+                          <span className="contact-card-pill">
+                            <i className="fa-solid fa-phone" />
+                            {contact.phone_number || '—'}
+                          </span>
+                          <span className="contact-card-pill">
+                            <i className="fa-solid fa-store" />
+                            Store {closedStore}
+                          </span>
+                        </div>
+
+                        {/* Checkboxes */}
+                        <div className="contact-card-checks">
+                          <label className="contact-card-check-row">
                             <input
                               type="checkbox"
                               checked={isDoNotAttempt}
                               onChange={canEdit ? () => toggleFlag(originalIndex, 'do_not_attempt') : undefined}
                               disabled={!canEdit}
                             />
-                          </td>
-                          <td className="col-checkbox">
+                            Do Not Attempt
+                          </label>
+                          <label className="contact-card-check-row">
                             <input
                               type="checkbox"
                               checked={isContacted}
                               onChange={canEdit ? () => toggleFlag(originalIndex, 'contacted_to_store') : undefined}
                               disabled={!canEdit}
                             />
-                          </td>
-                          <td className="col-checkbox">
+                            Contacted
+                          </label>
+                          <label className="contact-card-check-row">
                             <input
                               type="checkbox"
                               checked={attemptedChecked}
                               onChange={canEdit ? () => toggleFlag(originalIndex, 'attempted_to_store') : undefined}
                               disabled={!canEdit}
                             />
-                          </td>
-                          <td className="col-notes">
-                            {!canEdit && <span className="muted">{contact.notes || '—'}</span>}
-                            {canEdit && !isEditingNote && (
-                              <div className="note-view">
-                                {contact.notes ? (
-                                  <>
-                                    <span className="note-text" title={contact.notes}>
-                                      {contact.notes}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      className="icon-btn"
-                                      title="Edit note"
-                                      onClick={() => startEditNote(originalIndex, contact.notes)}
-                                    >
-                                      <i className="fa-solid fa-pen" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="icon-btn danger"
-                                      title="Delete note"
-                                      disabled={isSavingNote}
-                                      onClick={() => deleteNote(originalIndex)}
-                                    >
-                                      <i className="fa-solid fa-trash" />
-                                    </button>
-                                  </>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="add-note-btn"
-                                    onClick={() => startEditNote(originalIndex, '')}
-                                  >
-                                    <i className="fa-solid fa-plus" />
-                                    Add note
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                            {canEdit && isEditingNote && (
-                              <div className="note-edit">
-                                <input
-                                  type="text"
-                                  autoFocus
-                                  value={noteDraft}
-                                  placeholder="Add a note…"
-                                  onChange={(e) => setNoteDraft(e.target.value)}
-                                  disabled={isSavingNote}
-                                />
-                                <button
-                                  type="button"
-                                  className="icon-btn success"
-                                  title="Save note"
-                                  disabled={isSavingNote}
-                                  onClick={() => saveEditNote(originalIndex)}
-                                >
-                                  <i className={isSavingNote ? 'fa-solid fa-circle-notch fa-spin' : 'fa-solid fa-check'} />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="icon-btn"
-                                  title="Cancel"
-                                  disabled={isSavingNote}
-                                  onClick={cancelEditNote}
-                                >
-                                  <i className="fa-solid fa-xmark" />
-                                </button>
-                              </div>
-                            )}
-                            {rowNoteMessage && (
-                              <div className={`note-message ${rowNoteMessage.type}`}>{rowNoteMessage.text}</div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  {!contactsState.loading &&
-                    !contactsState.error &&
-                    contacts.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="empty-cell">No customers found for this store.</td>
-                      </tr>
-                    )}
-                </tbody>
-              </table>
-            </div>
+                            Attempted
+                          </label>
+                        </div>
+
+                        {/* Notes */}
+                        <div className="contact-card-notes">
+                          <div className="contact-card-notes-label">Notes</div>
+                          {renderNoteCell(contact, originalIndex)}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </>
           )}
         </div>
       </div>
+
+      {/* ── Sticky mobile submit bar (shown only on ≤640px via CSS) ── */}
+      {storeNo && (
+        <div className="mobile-submit-bar">
+          <button className="btn primary" disabled={saveState.saving} onClick={handleSave}>
+            {saveState.saving ? (
+              <>
+                <i className="fa-solid fa-circle-notch fa-spin" />
+                Saving…
+              </>
+            ) : (
+              <>
+                <i className="fa-solid fa-paper-plane" />
+                Submit
+              </>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
