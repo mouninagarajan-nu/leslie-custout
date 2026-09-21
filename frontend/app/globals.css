@@ -778,6 +778,45 @@ input[type='checkbox']:disabled {
   }
 }
 
+/* Top-center toast (e.g. "Signing in…") */
+.toast-top {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--white);
+  color: var(--accent);
+  padding: 13px 22px;
+  border-radius: var(--radius-md);
+  border-left: 4px solid var(--accent);
+  box-shadow: 0 10px 32px rgba(7, 30, 56, 0.18);
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+  animation: slideInDown 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+.toast-top i {
+  font-size: 15px;
+  opacity: 0.85;
+}
+
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* =========================================================
    Responsive
    ========================================================= */

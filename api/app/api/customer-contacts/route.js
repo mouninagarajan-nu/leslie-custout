@@ -62,14 +62,22 @@ export async function GET(request) {
           [closedStores, needed]
         );
 
-        for (const candidate of candidates) {
-          // ON CONFLICT guards against a customer being claimed twice if two
-          // requests race; the loser here just gets skipped this round.
+        if (candidates.length > 0) {
+          // Bulk-insert all candidates in a single round-trip.
+          // ON CONFLICT guards against a race where two requests claim the same customer;
+          // the loser's row is silently skipped.
+          const valuePlaceholders = candidates
+            .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
+            .join(', ');
+          const flatParams = [
+            employeeId,
+            ...candidates.flatMap((c) => [c.customer_name, c.store_number]),
+          ];
           await client.query(
             `insert into employee_daily_assignments (employee_id, customer_name, store_number)
-             values ($1, $2, $3)
+             values ${valuePlaceholders}
              on conflict (customer_name, store_number, assigned_date) do nothing`,
-            [employeeId, candidate.customer_name, candidate.store_number]
+            flatParams
           );
         }
       }

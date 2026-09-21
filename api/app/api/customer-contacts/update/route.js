@@ -22,30 +22,37 @@ export async function POST(request) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const validContacts = contacts.filter((c) => !!c.customer_name);
     let updated = 0;
-    for (const contact of contacts) {
-      if (!contact.customer_name) continue;
-      const contacted = contact.contacted_to_store === 'Y' ? 'Y' : 'N';
-      const attempted = contact.attempted_to_store === 'Y' ? 'Y' : 'N';
-      const doNotAttempt = contact.do_not_attempt === 'Y' ? 'Y' : 'N';
-      const notes = typeof contact.notes === 'string' ? contact.notes.trim() : '';
+    if (validContacts.length > 0) {
+      // Build a single bulk UPDATE using a VALUES table so the DB only needs
+      // one round-trip regardless of how many rows are being updated.
+      const valuePlaceholders = validContacts
+        .map((_, i) => `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}::text, $${i * 5 + 5})`)
+        .join(', ');
+      const flatParams = validContacts.flatMap((c) => [
+        c.contacted_to_store === 'Y' ? 'Y' : 'N',
+        c.attempted_to_store === 'Y' ? 'Y' : 'N',
+        c.do_not_attempt === 'Y' ? 'Y' : 'N',
+        typeof c.notes === 'string' ? c.notes.trim() || null : null,
+        c.customer_name,
+      ]);
+      const storeParam = `$${validContacts.length * 5 + 1}`;
       const result = await client.query(
-        `
-          update customer_assignment
-          set contacted_to_store = $1,
-              attempted_to_store = $2,
-              do_not_attempt = $3,
-              notes = $4
-          where customer_name = $5
-            and store_number in (
-              select closed_store
-              from store_assignment
-              where open_store = $6
-            )
-        `,
-        [contacted, attempted, doNotAttempt, notes || null, contact.customer_name, storeNumber]
+        `update customer_assignment ca
+         set contacted_to_store = v.contacted,
+             attempted_to_store = v.attempted,
+             do_not_attempt     = v.do_not_attempt,
+             notes              = v.notes
+         from (values ${valuePlaceholders})
+           as v(contacted, attempted, do_not_attempt, notes, customer_name)
+         where ca.customer_name = v.customer_name
+           and ca.store_number in (
+             select closed_store from store_assignment where open_store = ${storeParam}
+           )`,
+        [...flatParams, storeNumber]
       );
-      updated += result.rowCount || 0;
+      updated = result.rowCount || 0;
     }
     await client.query('COMMIT');
     return NextResponse.json({ message: `Record (${updated}) updated successfully.` }, { headers: corsHeaders() });

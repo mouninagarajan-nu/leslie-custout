@@ -66,6 +66,14 @@ export default function LoginPage() {
 
   return (
     <div className="login-wrapper">
+      {/* ── Top-center status toast ── */}
+      {status && (
+        <div className="toast-top">
+          <i className="fa-solid fa-circle-notch fa-spin" />
+          {status}
+        </div>
+      )}
+
       {/* ── Left: Hero panel ── */}
       <div className="hero-panel">
         <div className="hero-brand-badge">
@@ -117,10 +125,7 @@ export default function LoginPage() {
 
             <button type="submit" className="btn-signin" disabled={submitting}>
               {submitting ? (
-                <>
-                  <i className="fa-solid fa-circle-notch fa-spin" />
-                  Signing in…
-                </>
+                <i className="fa-solid fa-circle-notch fa-spin" />
               ) : (
                 'Sign In'
               )}
@@ -128,7 +133,6 @@ export default function LoginPage() {
           </form>
 
           {helperText && <div className="login-alert error">{helperText}</div>}
-          {status && <div className="login-alert info">{status}</div>}
 
           <div className="login-footer-icons">
             <i className="fa-solid fa-tree" style={{ color: '#0077c8' }} />
