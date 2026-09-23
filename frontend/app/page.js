@@ -2,15 +2,24 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { saveAdminSession } from '../lib/adminSession';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+const ADMIN_STORE_NUMBER = process.env.NEXT_PUBLIC_ADMIN_STORE_NUMBER || '9999';
 
 export default function LoginPage() {
   const [form, setForm] = useState({ employeeId: '', storeNo: '' });
   const [errors, setErrors] = useState({});
   const [status, setStatus] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [isAdminMode, setIsAdminMode] = useState(false);
   const router = useRouter();
+
+  const switchMode = (admin) => {
+    setIsAdminMode(admin);
+    setForm((prev) => ({ ...prev, storeNo: admin ? ADMIN_STORE_NUMBER : '' }));
+    resetStatus();
+  };
 
   const resetStatus = () => {
     setStatus('');
@@ -46,6 +55,19 @@ export default function LoginPage() {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(body?.error || 'Invalid Employee ID or Store Number.');
+      }
+      if (body?.isAdmin && body?.adminToken) {
+        saveAdminSession({
+          token: body.adminToken,
+          employeeId: body.employeeId,
+          employeeName: body.employeeName
+        });
+        setStatus('');
+        router.push('/admin');
+        return;
+      }
+      if (isAdminMode) {
+        throw new Error('This account does not have admin access.');
       }
       setStatus('');
       router.push(
@@ -93,8 +115,33 @@ export default function LoginPage() {
       <div className="form-panel">
         <div className="form-panel-inner">
           <img src="/logo.jpg" alt="Leslie's logo" className="form-logo" />
-          <h1 className="form-title">Sign In</h1>
-          <p className="form-subtitle">Employee authorization required.</p>
+          <h1 className="form-title">{isAdminMode ? 'Admin Sign In' : 'Sign In'}</h1>
+          <p className="form-subtitle">
+            {isAdminMode ? 'Administrator authorization required.' : 'Employee authorization required.'}
+          </p>
+
+          <div className="login-mode-toggle" role="tablist" aria-label="Sign-in type">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!isAdminMode}
+              className={!isAdminMode ? 'active' : ''}
+              onClick={() => switchMode(false)}
+            >
+              <i className="fa-solid fa-user" />
+              Employee
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isAdminMode}
+              className={isAdminMode ? 'active' : ''}
+              onClick={() => switchMode(true)}
+            >
+              <i className="fa-solid fa-user-shield" />
+              Admin
+            </button>
+          </div>
 
           <form className="login-form" onSubmit={handleSubmit}>
             {/* Employee ID */}
@@ -119,6 +166,8 @@ export default function LoginPage() {
                 placeholder="Store No."
                 value={form.storeNo}
                 onChange={(e) => handleChange('storeNo', e.target.value)}
+                readOnly={isAdminMode}
+                title={isAdminMode ? 'Admins sign in with the virtual admin store' : undefined}
                 autoComplete="off"
               />
             </div>

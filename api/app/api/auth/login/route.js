@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import pool from '../../../../lib/db';
 import { corsHeaders } from '../../../../lib/cors';
+import { isAdminStore, signAdminToken } from '../../../../lib/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,11 +36,26 @@ export async function POST(request) {
       );
     }
 
+    const isAdmin = isAdminStore(rows[0].store_number);
+    let adminToken;
+    if (isAdmin) {
+      adminToken = signAdminToken(rows[0].employee_id);
+      if (!adminToken) {
+        console.error('Admin login attempted but ADMIN_TOKEN_SECRET is not configured.');
+        return NextResponse.json(
+          { error: 'Admin login is not configured on the server.' },
+          { status: 500, headers: corsHeaders() }
+        );
+      }
+    }
+
     return NextResponse.json(
       {
         employeeId: rows[0].employee_id,
         employeeName: rows[0].employee_name,
-        storeNumber: rows[0].store_number
+        storeNumber: rows[0].store_number,
+        isAdmin,
+        ...(adminToken && { adminToken })
       },
       { headers: corsHeaders() }
     );
