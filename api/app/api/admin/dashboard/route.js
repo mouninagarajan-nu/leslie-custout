@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import pool from '../../../../lib/db';
 import { corsHeaders } from '../../../../lib/cors';
 import { ADMIN_STORE_NUMBER, verifyAdminRequest } from '../../../../lib/adminAuth';
+import { storeInUse } from '../../../../lib/stores';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +57,7 @@ export async function OPTIONS() {
 // GET /api/admin/dashboard?store=<store_nbr|all>&from=YYYY-MM-DD&to=YYYY-MM-DD&status=<status>
 //
 // Always returns `metrics` for the selected scope.
-//   store=all → also `stores`: every active store with its details and its own metrics.
+//   store=all → also `stores`: every active store with customer assignments, with its details and metrics.
 //   store=X   → also `store` (details) and `contacts` for that store.
 // `status` (all|contacted|attempted|do_not_attempt|pending) filters `contacts`; with
 // store=all, contacts across all stores are returned only when a status is given.
@@ -112,6 +113,7 @@ export async function GET(request) {
        ) m
        where coalesce(l.record_state, 'ACTIVE') = 'ACTIVE'
          and l.store_nbr <> $3
+         and ${storeInUse('l')}
        order by case when l.store_nbr ~ '^[0-9]+$' then l.store_nbr::numeric end, l.store_nbr`,
       [from, to, ADMIN_STORE_NUMBER]
     );
