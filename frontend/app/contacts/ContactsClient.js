@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import StoreHeader from '../components/StoreHeader';
+import { clearEmployeeSession } from '../../lib/adminSession';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
 
@@ -66,6 +67,18 @@ export default function ContactsClient() {
       });
     }
   };
+
+  useEffect(() => {
+    // Trap browser back button while logged in to prevent navigating back to login page
+    window.history.pushState(null, '', window.location.href);
+    const handlePopState = () => {
+      window.history.pushState(null, '', window.location.href);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
 
   useEffect(() => {
     // Only assign new tasks on initial component mount (when arriving from login or a fresh refresh)
@@ -315,7 +328,13 @@ export default function ContactsClient() {
             <i className="fa-solid fa-rotate-right" />
             <span className="btn-label">Refresh</span>
           </button>
-          <button className="btn ghost" onClick={() => router.push('/')}>
+          <button
+            className="btn ghost"
+            onClick={() => {
+              clearEmployeeSession();
+              router.replace('/');
+            }}
+          >
             <i className="fa-solid fa-arrow-right-from-bracket" />
             <span className="btn-label">Log out</span>
           </button>

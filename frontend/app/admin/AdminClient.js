@@ -192,6 +192,18 @@ export default function AdminClient() {
   }, [session, storeFilter, statusFilter, range, logout]);
 
   useEffect(() => {
+    // Trap browser back button while logged in as admin to prevent navigating back to login page
+    window.history.pushState(null, '', window.location.href);
+    const handlePopState = () => {
+      window.history.pushState(null, '', window.location.href);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  useEffect(() => {
     loadDashboard();
   }, [loadDashboard]);
 
@@ -245,10 +257,6 @@ export default function AdminClient() {
           </div>
         </div>
         <div className="dash-navbar-actions">
-          <button className="btn ghost" onClick={loadDashboard} disabled={state.loading}>
-            <i className="fa-solid fa-rotate-right" />
-            <span className="btn-label">Refresh</span>
-          </button>
           <button className="btn ghost" onClick={logout}>
             <i className="fa-solid fa-arrow-right-from-bracket" />
             <span className="btn-label">Log out</span>
@@ -354,7 +362,7 @@ export default function AdminClient() {
         </div>
 
         {/* ── All stores: store directory with per-store counts ── */}
-        {!isStoreView && (
+        {!isStoreView && !statusFilter && (
           <div className="section-card admin-section">
             <div className="section-header">
               <div>

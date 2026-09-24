@@ -23,7 +23,7 @@ export async function POST(request) {
 
   try {
     const { rows } = await pool.query(
-      `select employee_id, employee_name, store_number
+      `select employee_id, employee_name, store_number, coalesce(role, 'EMPLOYEE') as role
        from employees
        where UPPER(employee_id) = UPPER($1) and store_number = $2`,
       [employeeId, storeNumber]
@@ -36,7 +36,8 @@ export async function POST(request) {
       );
     }
 
-    const isAdmin = isAdminStore(rows[0].store_number);
+    const userRole = String(rows[0].role).toUpperCase();
+    const isAdmin = userRole === 'ADMIN' || isAdminStore(rows[0].store_number);
     let adminToken;
     if (isAdmin) {
       adminToken = signAdminToken(rows[0].employee_id);
@@ -54,6 +55,7 @@ export async function POST(request) {
         employeeId: rows[0].employee_id,
         employeeName: rows[0].employee_name,
         storeNumber: rows[0].store_number,
+        role: userRole,
         isAdmin,
         ...(adminToken && { adminToken })
       },

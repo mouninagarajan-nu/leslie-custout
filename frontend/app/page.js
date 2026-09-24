@@ -1,8 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { saveAdminSession } from '../lib/adminSession';
+import {
+  saveAdminSession,
+  loadAdminSession,
+  saveEmployeeSession,
+  loadEmployeeSession
+} from '../lib/adminSession';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
 const ADMIN_STORE_NUMBER = process.env.NEXT_PUBLIC_ADMIN_STORE_NUMBER || '9999';
@@ -13,7 +18,30 @@ export default function LoginPage() {
   const [status, setStatus] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
   const router = useRouter();
+
+  // If already logged in, automatically redirect to active session (prevents seeing login page while logged in)
+  useEffect(() => {
+    const adminSession = loadAdminSession();
+    if (adminSession?.token) {
+      router.replace('/admin');
+      return;
+    }
+    const empSession = loadEmployeeSession();
+    if (empSession?.storeNo && empSession?.employeeId) {
+      router.replace(
+        `/contacts?store=${encodeURIComponent(empSession.storeNo)}&emp=${encodeURIComponent(empSession.employeeId)}`
+      );
+      return;
+    }
+    setIsCheckingSession(false);
+  }, [router]);
+
+  const helperText = useMemo(() => {
+    if (Object.keys(errors).length === 0) return '';
+    return Object.values(errors)[0];
+  }, [errors]);
 
   const switchMode = (admin) => {
     setIsAdminMode(admin);
@@ -63,14 +91,19 @@ export default function LoginPage() {
           employeeName: body.employeeName
         });
         setStatus('');
-        router.push('/admin');
+        router.replace('/admin');
         return;
       }
       if (isAdminMode) {
         throw new Error('This account does not have admin access.');
       }
+      saveEmployeeSession({
+        storeNo: form.storeNo.trim(),
+        employeeId: form.employeeId.trim(),
+        employeeName: body.employeeName
+      });
       setStatus('');
-      router.push(
+      router.replace(
         `/contacts?store=${encodeURIComponent(form.storeNo.trim())}&emp=${encodeURIComponent(form.employeeId.trim())}`
       );
     } catch (error) {
@@ -81,10 +114,15 @@ export default function LoginPage() {
     }
   };
 
-  const helperText = useMemo(() => {
-    if (Object.keys(errors).length === 0) return '';
-    return Object.values(errors)[0];
-  }, [errors]);
+  if (isCheckingSession) {
+    return (
+      <div className="login-wrapper" style={{ background: 'var(--navy-900)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', width: '100%', color: '#fff' }}>
+          <i className="fa-solid fa-circle-notch fa-spin" style={{ fontSize: 24, color: '#38bdf8' }} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="login-wrapper">
