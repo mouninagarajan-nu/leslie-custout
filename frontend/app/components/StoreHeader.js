@@ -1,4 +1,4 @@
-// Store name, address, phone and manager from loc_rtl_loc.
+// Store name, address, phone and manager from store_details.
 // `store` is a row from GET /api/stores (or the dashboard's `store` field).
 export default function StoreHeader({ store, loading = false }) {
   if (loading) {

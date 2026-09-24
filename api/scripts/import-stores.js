@@ -1,9 +1,9 @@
-// Imports a store feed CSV (e.g. store_feed.csv) into loc_rtl_loc.
+// Imports a store feed CSV (e.g. store_feed.csv) into store_details.
 //
 //   node scripts/import-stores.js <path-to-csv>                     # dry run: parse + report only
 //   TARGET_DATABASE_URL=... node scripts/import-stores.js <csv> --apply
 //
-// Only loc_rtl_loc columns are imported; everything else in the feed (bank account
+// Only store_details columns are imported; everything else in the feed (bank account
 // numbers, tax rates, coordinates, ...) is ignored. Rows are upserted on store_nbr,
 // so re-running with a newer feed updates existing stores in place.
 const fs = require('fs');
@@ -100,15 +100,15 @@ async function main() {
         .join(', ');
       const params = batch.flatMap((rec) => COLUMNS.map((c) => rec[c]));
       const res = await client.query(
-        `insert into loc_rtl_loc (${COLUMNS.join(', ')}) values ${values}
+        `insert into store_details (${COLUMNS.join(', ')}) values ${values}
          on conflict (store_nbr) do update set ${updates}`,
         params
       );
       written += res.rowCount;
     }
     await client.query('COMMIT');
-    const { rows } = await client.query('select count(*)::int as n from loc_rtl_loc');
-    console.log(`Upserted ${written} rows. loc_rtl_loc now has ${rows[0].n} rows.`);
+    const { rows } = await client.query('select count(*)::int as n from store_details');
+    console.log(`Upserted ${written} rows. store_details now has ${rows[0].n} rows.`);
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

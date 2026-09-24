@@ -85,7 +85,7 @@ export default function ContactsClient() {
     fetchContacts(true);
   }, [storeNo, employeeId]);
 
-  // Store name/address header; stays hidden if the store has no loc_rtl_loc row.
+  // Store name/address header; stays hidden if the store has no store_details row.
   useEffect(() => {
     if (!storeNo) return;
     let cancelled = false;

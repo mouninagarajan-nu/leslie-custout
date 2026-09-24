@@ -387,7 +387,7 @@ export default function AdminClient() {
               {!isStale &&
                 (data?.stores || []).map((st) => <StoreCard key={st.store_nbr} store={st} onSelect={selectStore} />)}
               {!state.loading && !isStale && data?.stores?.length === 0 && (
-                <p className="muted" style={{ padding: 8 }}>No active stores found in loc_rtl_loc.</p>
+                <p className="muted" style={{ padding: 8 }}>No active stores found in store_details.</p>
               )}
             </div>
           </div>

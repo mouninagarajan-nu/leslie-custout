@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import pool from '../../../../lib/db';
 import { corsHeaders } from '../../../../lib/cors';
-import { ADMIN_STORE_NUMBER, verifyAdminRequest } from '../../../../lib/adminAuth';
+import { verifyAdminRequest } from '../../../../lib/adminAuth';
 import { storeInUse } from '../../../../lib/stores';
 
 export const dynamic = 'force-dynamic';
+
+// Exclude the virtual admin store from store lists / queries
+const ADMIN_STORE_NUMBER = process.env.ADMIN_STORE_NUMBER || '9999';
 
 const MAX_CONTACT_ROWS = 500;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -104,7 +107,7 @@ export async function GET(request) {
   const storesQuery = () =>
     pool.query(
       `select ${STORE_COLUMNS.split(',').map((c) => `l.${c.trim()}`).join(', ')}, m.*
-       from loc_rtl_loc l
+       from store_details l
        cross join lateral (
          select ${METRIC_COLUMNS}
          from customer_assignment ca
@@ -119,7 +122,7 @@ export async function GET(request) {
     );
 
   const storeDetailQuery = () =>
-    pool.query(`select ${STORE_COLUMNS} from loc_rtl_loc where store_nbr = $1`, [store]);
+    pool.query(`select ${STORE_COLUMNS} from store_details where store_nbr = $1`, [store]);
 
   // Latest assignment (within the range, if any) tells the admin who worked each customer.
   const contactsQuery = () =>

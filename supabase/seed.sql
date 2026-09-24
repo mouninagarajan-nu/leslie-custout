@@ -2,7 +2,7 @@
 -- Supabase Branching runs this automatically after migrations on each new branch.
 -- Mirrors production's shape (open → closed store pairs, admin store 9999) with fake values.
 
-INSERT INTO loc_rtl_loc
+INSERT INTO store_details
     (rtl_loc_id, store_nbr, store_name, address1, city, state, postal_code, country, telephone1, store_manager, email_addr)
 VALUES
     ('LOC-215',  '215',  'Dev Store 215',  '100 Sample Ave',   'Phoenix',   'AZ', '85001', 'US', '555-0100', 'Dev Manager A', 'store215@example.com'),
@@ -21,12 +21,12 @@ INSERT INTO store_assignment (open_store, closed_store) VALUES
 ON CONFLICT (open_store, closed_store) DO NOTHING;
 
 -- Employees log in with Employee ID + their open store; admins use store 9999.
-INSERT INTO employees (employee_id, store_number, employee_name) VALUES
-    ('DEV001',   '888',  'Dev Employee One'),
-    ('DEV002',   '888',  'Dev Employee Two'),
-    ('DEV003',   '998',  'Dev Employee Three'),
-    ('DEV004',   '216',  'Dev Employee Four'),
-    ('ADMIN001', '9999', 'Dev Admin')
+INSERT INTO employees (employee_id, store_number, employee_name, role) VALUES
+    ('DEV001',   '888',  'Dev Employee One',   'Employee'),
+    ('DEV002',   '888',  'Dev Employee Two',   'Employee'),
+    ('DEV003',   '998',  'Dev Employee Three', 'Employee'),
+    ('DEV004',   '216',  'Dev Employee Four',  'Employee'),
+    ('ADMIN001', '9999', 'Dev Admin',          'Admin')
 ON CONFLICT (employee_id) DO NOTHING;
 
 -- 8 fake customers per closed store; a few pre-resolved so the dashboard has data.

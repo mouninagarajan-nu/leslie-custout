@@ -1,8 +1,5 @@
 import crypto from 'crypto';
 
-// Employees whose `store_number` is this virtual store are admins.
-export const ADMIN_STORE_NUMBER = process.env.ADMIN_STORE_NUMBER || '9999';
-
 const TOKEN_TTL_SECONDS = 8 * 60 * 60;
 
 // In production ADMIN_TOKEN_SECRET must be set (tokens must verify across
@@ -19,10 +16,6 @@ function getSecret() {
 }
 
 const sign = (data, secret) => crypto.createHmac('sha256', secret).update(data).digest('base64url');
-
-export function isAdminStore(storeNumber) {
-  return String(storeNumber || '').trim() === ADMIN_STORE_NUMBER;
-}
 
 // Returns a signed `payload.signature` token, or null if no secret is configured.
 export function signAdminToken(employeeId) {

@@ -1,0 +1,1 @@
+ALTER TABLE loc_rtl_loc RENAME TO store_details;

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import pool from '../../../../lib/db';
 import { corsHeaders } from '../../../../lib/cors';
-import { isAdminStore, signAdminToken } from '../../../../lib/adminAuth';
+import { signAdminToken } from '../../../../lib/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +23,7 @@ export async function POST(request) {
 
   try {
     const { rows } = await pool.query(
-      `select employee_id, employee_name, store_number, coalesce(role, 'EMPLOYEE') as role
+      `select employee_id, employee_name, store_number, coalesce(role, 'Employee') as role
        from employees
        where UPPER(employee_id) = UPPER($1) and store_number = $2`,
       [employeeId, storeNumber]
@@ -36,8 +36,8 @@ export async function POST(request) {
       );
     }
 
-    const userRole = String(rows[0].role).toUpperCase();
-    const isAdmin = userRole === 'ADMIN' || isAdminStore(rows[0].store_number);
+    const userRole = rows[0].role;
+    const isAdmin = userRole === 'Admin';
     let adminToken;
     if (isAdmin) {
       adminToken = signAdminToken(rows[0].employee_id);

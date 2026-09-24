@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import pool from '../../../lib/db';
 import { corsHeaders } from '../../../lib/cors';
-import { ADMIN_STORE_NUMBER } from '../../../lib/adminAuth';
 import { storeInUse } from '../../../lib/stores';
+
+// Exclude the virtual admin store from store lists
+const ADMIN_STORE_NUMBER = process.env.ADMIN_STORE_NUMBER || '9999';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +22,7 @@ export async function GET(request) {
     const { rows } = await pool.query(
       `select store_nbr, store_name, address1, address2, city, state, postal_code,
               country, telephone1, store_manager, email_addr
-       from loc_rtl_loc l
+       from store_details l
        where coalesce(record_state, 'ACTIVE') = 'ACTIVE'
          and store_nbr <> $1
          and (($2::text is null and ${storeInUse('l')}) or store_nbr = $2)

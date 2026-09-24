@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS employees (
     employee_id   VARCHAR(50)  PRIMARY KEY,
     store_number  VARCHAR(20)  NOT NULL,
     employee_name VARCHAR(200),
+    role          VARCHAR(20)  NOT NULL DEFAULT 'Employee',
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
@@ -51,7 +52,7 @@ CREATE INDEX IF NOT EXISTS idx_eda_assigned_date
     ON employee_daily_assignments (assigned_date, store_number, customer_name);
 
 -- ── Store location reference ─────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS loc_rtl_loc (
+CREATE TABLE IF NOT EXISTS store_details (
     rtl_loc_id    VARCHAR(50) PRIMARY KEY,
     store_nbr     VARCHAR(50) NOT NULL UNIQUE,
     store_name    VARCHAR(100),
