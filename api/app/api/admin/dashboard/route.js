@@ -91,13 +91,20 @@ export async function GET(request) {
     );
   }
 
-  // $1 = store (null → all), $2/$3 = date range (null → all time)
+  // $1 = store (null => all), $2/$3 = date range (null => all time)
+  // When store=all, scope to only customers belonging to open stores
+  // (or their mapped closed stores) so purely closed-only stores are excluded.
   const scopedCte = `
     with scoped as (
       select ca.customer_name, ca.store_number, ca.contacted_to_store,
              ca.attempted_to_store, ca.do_not_attempt, ca.notes
       from customer_assignment ca
       where ($1::text is null or ${storeMatch('$1')})
+        and ($1::text is not null or exists (
+          select 1 from store_assignment sa
+          where sa.open_store = ca.store_number
+             or sa.closed_store = ca.store_number
+        ))
         and ${dateMatch('$2', '$3')}
     )`;
   const params = [store, from, to];
@@ -108,6 +115,7 @@ export async function GET(request) {
     pool.query(
       `select ${STORE_COLUMNS.split(',').map((c) => `l.${c.trim()}`).join(', ')}, m.*
        from store_details l
+       inner join store_assignment sa on trim(sa.open_store) = trim(l.store_nbr)
        cross join lateral (
          select ${METRIC_COLUMNS}
          from customer_assignment ca
@@ -116,7 +124,7 @@ export async function GET(request) {
        ) m
        where coalesce(l.record_state, 'ACTIVE') = 'ACTIVE'
          and l.store_nbr <> $3
-         and ${storeInUse('l')}
+       group by ${STORE_COLUMNS.split(',').map((c) => `l.${c.trim()}`).join(', ')}, m.total, m.contacted, m.attempted, m.do_not_attempt, m.pending
        order by case when l.store_nbr ~ '^[0-9]+$' then l.store_nbr::numeric end, l.store_nbr`,
       [from, to, ADMIN_STORE_NUMBER]
     );
@@ -136,7 +144,13 @@ export async function GET(request) {
               s.notes,
               la.employee_id as assigned_employee_id,
               e.employee_name as assigned_employee_name,
-              to_char(la.assigned_date, 'YYYY-MM-DD') as assigned_date
+              to_char(la.assigned_date, 'YYYY-MM-DD') as assigned_date,
+              (
+                select count(*)::int
+                from employee_daily_assignments eda2
+                where eda2.customer_name = s.customer_name
+                  and eda2.store_number = s.store_number
+              ) as attempt_count
        from scoped s
        left join lateral (
          select eda.employee_id, eda.assigned_date

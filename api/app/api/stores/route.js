@@ -20,13 +20,16 @@ export async function GET(request) {
 
   try {
     const { rows } = await pool.query(
-      `select store_nbr, store_name, address1, address2, city, state, postal_code,
-              country, telephone1, store_manager, email_addr
+      `select l.store_nbr, l.store_name, l.address1, l.address2, l.city, l.state, l.postal_code,
+              l.country, l.telephone1, l.store_manager, l.email_addr
        from store_details l
-       where coalesce(record_state, 'ACTIVE') = 'ACTIVE'
-         and store_nbr <> $1
-         and (($2::text is null and ${storeInUse('l')}) or store_nbr = $2)
-       order by case when store_nbr ~ '^[0-9]+$' then store_nbr::numeric end, store_nbr`,
+       ${store ? '' : 'inner join store_assignment sa on trim(sa.open_store) = trim(l.store_nbr)'}
+       where coalesce(l.record_state, 'ACTIVE') = 'ACTIVE'
+         and l.store_nbr <> $1
+         and ($2::text is null or l.store_nbr = $2)
+       group by l.store_nbr, l.store_name, l.address1, l.address2, l.city, l.state, l.postal_code,
+                l.country, l.telephone1, l.store_manager, l.email_addr
+       order by case when l.store_nbr ~ '^[0-9]+$' then l.store_nbr::numeric end, l.store_nbr`,
       [ADMIN_STORE_NUMBER, store]
     );
 

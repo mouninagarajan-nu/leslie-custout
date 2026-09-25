@@ -107,7 +107,13 @@ export async function GET(request) {
                 coalesce(ca.contacted_to_store, 'N') = 'Y'
                 or coalesce(ca.attempted_to_store, 'N') = 'Y'
                 or coalesce(ca.do_not_attempt, 'N') = 'Y'
-              ) as is_resolved
+              ) as is_resolved,
+              (
+                select count(*)::int
+                from employee_daily_assignments eda2
+                where eda2.customer_name = ca.customer_name
+                  and eda2.store_number = ca.store_number
+              ) as attempt_count
        from customer_assignment ca
        left join employee_daily_assignments eda
          on eda.customer_name = ca.customer_name

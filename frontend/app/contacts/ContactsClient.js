@@ -7,6 +7,8 @@ import { clearEmployeeSession } from '../../lib/adminSession';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
 
+const MAX_ATTEMPTS = 3;
+
 const toBool = (value) => {
   const str = String(value ?? '').trim().toLowerCase();
   return value === true || str === 'y' || str === 'yes' || str === 'true' || str === '1';
@@ -457,6 +459,17 @@ export default function ContactsClient() {
                                   Completed
                                 </span>
                               )}
+                              {contact.attempt_count > 0 && (
+                                <span className={`attempt-count-badge${contact.attempt_count >= MAX_ATTEMPTS ? ' danger' :
+                                    contact.attempt_count >= MAX_ATTEMPTS - 1 ? ' warning' : ''
+                                  }`}>
+                                  <i className="fa-solid fa-phone-volume" />
+                                  {contact.attempt_count >= MAX_ATTEMPTS
+                                    ? `${contact.attempt_count} attempts — will auto-close`
+                                    : `${contact.attempt_count} attempt${contact.attempt_count === 1 ? '' : 's'}`
+                                  }
+                                </span>
+                              )}
                             </td>
                             <td>{contact.phone_number || '—'}</td>
                             <td>{closedStore}</td>
@@ -594,6 +607,17 @@ export default function ContactsClient() {
                             <i className="fa-solid fa-store" />
                             Store {closedStore}
                           </span>
+                          {contact.attempt_count > 0 && (
+                            <span className={`contact-card-pill attempt-count-pill${contact.attempt_count >= MAX_ATTEMPTS ? ' danger' :
+                                contact.attempt_count >= MAX_ATTEMPTS - 1 ? ' warning' : ''
+                              }`}>
+                              <i className="fa-solid fa-phone-volume" />
+                              {contact.attempt_count >= MAX_ATTEMPTS
+                                ? `${contact.attempt_count} — auto-close`
+                                : `${contact.attempt_count} attempt${contact.attempt_count === 1 ? '' : 's'}`
+                              }
+                            </span>
+                          )}
                         </div>
 
                         {/* Checkboxes */}

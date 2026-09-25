@@ -4,6 +4,9 @@ import { corsHeaders } from '../../../../lib/cors';
 
 export const dynamic = 'force-dynamic';
 
+// After this many assignments a customer is automatically closed as Do Not Attempt.
+const MAX_ATTEMPTS = 3;
+
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
@@ -25,8 +28,10 @@ export async function POST(request) {
     const validContacts = contacts.filter((c) => !!c.customer_name);
     let updated = 0;
     if (validContacts.length > 0) {
-      // Build a single bulk UPDATE using a VALUES table so the DB only needs
-      // one round-trip regardless of how many rows are being updated.
+      // Build a single bulk UPDATE.
+      // Auto-close rule: if a contact is being saved as "Attempted" (not Contacted)
+      // and the total assignment count for that customer has hit MAX_ATTEMPTS,
+      // promote it to "Do Not Attempt" instead so the case is closed.
       const valuePlaceholders = validContacts
         .map((_, i) => `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}::text, $${i * 5 + 5})`)
         .join(', ');
@@ -38,19 +43,47 @@ export async function POST(request) {
         c.customer_name,
       ]);
       const storeParam = `$${validContacts.length * 5 + 1}`;
+      const maxAttemptsParam = `$${validContacts.length * 5 + 2}`;
       const result = await client.query(
         `update customer_assignment ca
          set contacted_to_store = v.contacted,
-             attempted_to_store = v.attempted,
-             do_not_attempt     = v.do_not_attempt,
-             notes              = v.notes
+             attempted_to_store =
+               -- If the row is being saved as Attempted (not Contacted) and has hit the
+               -- attempt cap, clear attempted_to_store (DNA will be set below instead).
+               case
+                 when v.contacted = 'N'
+                   and v.attempted = 'Y'
+                   and (
+                     select count(*)
+                     from employee_daily_assignments eda
+                     where eda.customer_name = ca.customer_name
+                       and eda.store_number  = ca.store_number
+                   ) >= ${maxAttemptsParam}::int
+                 then 'N'
+                 else v.attempted
+               end,
+             do_not_attempt =
+               -- Auto-promote to DNA when attempt cap is reached.
+               case
+                 when v.contacted = 'N'
+                   and v.attempted = 'Y'
+                   and (
+                     select count(*)
+                     from employee_daily_assignments eda
+                     where eda.customer_name = ca.customer_name
+                       and eda.store_number  = ca.store_number
+                   ) >= ${maxAttemptsParam}::int
+                 then 'Y'
+                 else v.do_not_attempt
+               end,
+             notes = v.notes
          from (values ${valuePlaceholders})
            as v(contacted, attempted, do_not_attempt, notes, customer_name)
          where ca.customer_name = v.customer_name
            and ca.store_number in (
              select closed_store from store_assignment where open_store = ${storeParam}
            )`,
-        [...flatParams, storeNumber]
+        [...flatParams, storeNumber, MAX_ATTEMPTS]
       );
       updated = result.rowCount || 0;
     }

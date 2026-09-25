@@ -115,6 +115,8 @@ function StatusPills({ contact }) {
   );
 }
 
+const PAGE_SIZES = [25, 50, 100];
+
 export default function AdminClient() {
   const router = useRouter();
   const [session, setSession] = useState(null);
@@ -125,6 +127,10 @@ export default function AdminClient() {
   const [statusFilter, setStatusFilter] = useState(null);
   const [datePreset, setDatePreset] = useState('7d');
   const [customRange, setCustomRange] = useState({ from: '', to: '' });
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0]);
+  const [search, setSearch] = useState('');
 
   const [data, setData] = useState(null);
   const [state, setState] = useState({ loading: false, error: '' });
@@ -207,6 +213,12 @@ export default function AdminClient() {
     loadDashboard();
   }, [loadDashboard]);
 
+  // Reset to page 1 and clear search whenever the underlying data or filters change.
+  useEffect(() => {
+    setPage(1);
+    setSearch('');
+  }, [data, storeFilter, statusFilter]);
+
   // Bring the table into view when a metric card is clicked.
   useEffect(() => {
     if (statusFilter && tableRef.current) {
@@ -234,6 +246,22 @@ export default function AdminClient() {
   const metrics = isStale ? null : data?.metrics;
   const contacts = !isStale && Array.isArray(data?.contacts) ? data.contacts : null;
   const showRows = !state.loading && !state.error && contacts;
+
+  // Filter by search term, then paginate
+  const searchTerm = search.trim().toLowerCase();
+  const filteredContacts = contacts
+    ? (searchTerm
+      ? contacts.filter((c) => (c.customer_name || '').toLowerCase().includes(searchTerm))
+      : contacts)
+    : null;
+
+  // Pagination derived values
+  const totalRows = filteredContacts?.length ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = (safePage - 1) * pageSize; // 0-based index
+  const pageEnd = Math.min(pageStart + pageSize, totalRows);
+  const pagedContacts = filteredContacts ? filteredContacts.slice(pageStart, pageEnd) : null;
   const rangeLabel = !range
     ? 'Select a start and end date'
     : range.from
@@ -405,9 +433,35 @@ export default function AdminClient() {
               </div>
               <div className="admin-table-actions">
                 {showRows && (
+                  <div className="admin-search-wrap">
+                    <i className="fa-solid fa-magnifying-glass admin-search-icon" />
+                    <input
+                      type="search"
+                      className="admin-search-input"
+                      placeholder="Search customer name…"
+                      value={search}
+                      onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                      aria-label="Search customers"
+                    />
+                    {search && (
+                      <button
+                        type="button"
+                        className="admin-search-clear"
+                        onClick={() => { setSearch(''); setPage(1); }}
+                        aria-label="Clear search"
+                      >
+                        <i className="fa-solid fa-xmark" />
+                      </button>
+                    )}
+                  </div>
+                )}
+                {showRows && (
                   <span className="muted">
-                    {contacts.length.toLocaleString()} customer{contacts.length === 1 ? '' : 's'}
-                    {data.truncated && ' (showing first 500)'}
+                    {totalRows > 0
+                      ? `Showing ${(pageStart + 1).toLocaleString()}–${pageEnd.toLocaleString()} of ${totalRows.toLocaleString()}${searchTerm && contacts ? ` (filtered from ${contacts.length.toLocaleString()})` : ''
+                      } customer${totalRows === 1 ? '' : 's'}`
+                      : searchTerm ? 'No results for that name' : '0 customers'}
+                    {!searchTerm && data.truncated && ' (capped at 500)'}
                   </span>
                 )}
                 {statusFilter && (
@@ -441,15 +495,23 @@ export default function AdminClient() {
                       </tr>
                     ))}
                   {showRows &&
-                    contacts.map((c) => (
-                      <tr key={`${c.closed_store_number}-${c.customer_name}`}>
-                        <td>{c.customer_name || '—'}</td>
+                    pagedContacts.map((c, i) => (
+                      <tr key={`${c.closed_store_number}-${c.customer_name}-${i}`}>
+                        <td>
+                          {c.customer_name || '—'}
+                          {c.attempt_count > 0 && (
+                            <span className="attempt-count-badge">
+                              <i className="fa-solid fa-phone-volume" />
+                              {c.attempt_count} attempt{c.attempt_count === 1 ? '' : 's'}
+                            </span>
+                          )}
+                        </td>
                         <td>{c.closed_store_number || '—'}</td>
                         <td><StatusPills contact={c} /></td>
                         <td>
                           {c.assigned_employee_id ? (
                             <>
-                              <div>{c.assigned_employee_name || c.assigned_employee_id}</div>
+                              <div>{c.assigned_employee_id}</div>
                               <div className="muted">{c.assigned_date}</div>
                             </>
                           ) : (
@@ -461,7 +523,7 @@ export default function AdminClient() {
                         </td>
                       </tr>
                     ))}
-                  {showRows && contacts.length === 0 && (
+                  {showRows && totalRows === 0 && (
                     <tr>
                       <td colSpan={5} className="empty-cell">No matching customers in the selected range.</td>
                     </tr>
@@ -469,6 +531,47 @@ export default function AdminClient() {
                 </tbody>
               </table>
             </div>
+            {/* ── Pagination bar ── */}
+            {showRows && totalRows > 0 && (
+              <div className="pagination-bar">
+                <div className="pagination-info">
+                  <label className="pagination-size-label">
+                    Rows per page
+                    <select
+                      value={pageSize}
+                      onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                    >
+                      {PAGE_SIZES.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="pagination-controls">
+                  <button
+                    type="button"
+                    className="btn outline pagination-btn"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={safePage === 1}
+                    aria-label="Previous page"
+                  >
+                    <i className="fa-solid fa-chevron-left" />
+                  </button>
+                  <span className="pagination-page-label">
+                    Page {safePage} of {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn outline pagination-btn"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safePage === totalPages}
+                    aria-label="Next page"
+                  >
+                    <i className="fa-solid fa-chevron-right" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
