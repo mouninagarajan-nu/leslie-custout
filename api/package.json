@@ -4,15 +4,24 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "next dev -p 4000",
-    "build": "next build",
+    "build": "npm run db:generate && next build",
     "start": "next start -p 4000",
-    "db:setup": "node scripts/db-setup.js"
+    "postinstall": "npm run db:generate",
+    "db:generate": "prisma generate --schema prisma/postgres/schema.prisma && prisma generate --schema prisma/mssql/schema.prisma",
+    "db:setup": "node scripts/db-setup.js",
+    "db:check:postgres": "prisma migrate diff --from-schema-datasource prisma/postgres/schema.prisma --to-schema-datamodel prisma/postgres/schema.prisma --exit-code",
+    "db:migrate:mssql": "prisma migrate dev --schema prisma/mssql/schema.prisma",
+    "db:deploy:mssql": "prisma migrate deploy --schema prisma/mssql/schema.prisma"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.3",
     "next": "latest",
     "pg": "latest",
     "react": "latest",
     "react-dom": "latest",
     "soap": "^1.13.1"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.3"
   }
 }

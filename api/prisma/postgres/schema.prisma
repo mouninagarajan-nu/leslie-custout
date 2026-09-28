@@ -1,0 +1,99 @@
+// PostgreSQL (Supabase) schema. Keep models in sync with ../mssql/schema.prisma —
+// only the datasource provider and native column types (@db.*) should differ.
+//
+// Postgres DDL is owned by supabase/migrations/, not Prisma Migrate: this file must
+// describe that schema, never drive it. See api/prisma/README.md.
+
+generator client {
+  provider      = "prisma-client-js"
+  output        = "../generated/postgres"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // No foreign keys exist between these tables; Prisma resolves relations itself.
+  relationMode = "prisma"
+}
+
+/// Customers to contact, per closed store. Y/N flags are CHAR(1) ('Y' | 'N').
+model CustomerAssignment {
+  customer_name      String   @db.VarChar(200)
+  store_number       String   @db.VarChar(20)
+  phone_number       String?  @db.VarChar(30)
+  contacted_to_store String   @default("N") @db.Char(1)
+  attempted_to_store String   @default("N") @db.Char(1)
+  do_not_attempt     String?  @default("N") @db.Char(1)
+  notes              String?
+  updated_timestamp  DateTime @default(now()) @db.Timestamptz(6)
+
+  assignments EmployeeDailyAssignment[]
+
+  @@id([customer_name, store_number])
+  @@map("customer_assignment")
+}
+
+/// Open store -> closed store mapping.
+model StoreAssignment {
+  open_store        String   @db.VarChar(50)
+  closed_store      String   @db.VarChar(50)
+  updated_timestamp DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([open_store, closed_store], map: "uq_store_assignment_pair")
+  @@map("store_assignment")
+}
+
+model Employee {
+  employee_id   String   @id @db.VarChar(50)
+  store_number  String   @db.VarChar(20)
+  employee_name String?  @db.VarChar(200)
+  /// 'Admin' | 'Employee' (case-sensitive)
+  role          String   @default("Employee") @db.VarChar(20)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("employees")
+}
+
+/// Per-employee daily customer claims. The unique constraint is what stops two
+/// employees claiming the same customer on the same day.
+model EmployeeDailyAssignment {
+  id            Int      @id @default(autoincrement())
+  employee_id   String   @db.VarChar(50)
+  customer_name String   @db.VarChar(200)
+  store_number  String   @db.VarChar(20)
+  assigned_date DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  customer CustomerAssignment @relation(fields: [customer_name, store_number], references: [customer_name, store_number], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([customer_name, store_number, assigned_date], map: "uq_customer_per_day")
+  @@index([employee_id, assigned_date], map: "idx_eda_employee_date")
+  @@index([assigned_date, store_number, customer_name], map: "idx_eda_assigned_date")
+  @@map("employee_daily_assignments")
+}
+
+/// Store location reference, loaded from the store feed CSV.
+model StoreDetails {
+  rtl_loc_id    String    @id @db.VarChar(50)
+  store_nbr     String    @unique @db.VarChar(50)
+  store_name    String?   @db.VarChar(100)
+  address1      String?   @db.VarChar(150)
+  address2      String?   @db.VarChar(150)
+  address3      String?   @db.VarChar(150)
+  address4      String?   @db.VarChar(150)
+  city          String?   @db.VarChar(100)
+  state         String?   @db.VarChar(50)
+  postal_code   String?   @db.VarChar(20)
+  country       String?   @db.VarChar(50)
+  neighborhood  String?   @db.VarChar(100)
+  county        String?   @db.VarChar(100)
+  telephone1    String?   @db.VarChar(20)
+  store_manager String?   @db.VarChar(100)
+  email_addr    String?   @db.VarChar(100)
+  record_state  String?   @default("ACTIVE") @db.VarChar(20)
+  create_date   DateTime? @default(now()) @db.Timestamp(6)
+  update_date   DateTime? @default(now()) @db.Timestamp(6)
+
+  @@map("store_details")
+}
