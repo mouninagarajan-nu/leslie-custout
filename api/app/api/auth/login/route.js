@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import pool from '../../../../lib/db';
 import { corsHeaders } from '../../../../lib/cors';
 import { signAdminToken } from '../../../../lib/adminAuth';
+import { validateEmployee } from '../../../../lib/xcenter';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,23 @@ export async function POST(request) {
   }
 
   try {
+    // ── Step 1: Validate employee identity via xCenter SOAP API ──────────────
+    const xcenter = await validateEmployee(employeeId);
+
+    if (!xcenter.valid) {
+      // If xCenter itself is down, fall back to DB-only validation so the app
+      // keeps working during outages. Remove this block if you want strict mode.
+      if (xcenter.error === 'xCenter service unavailable') {
+        console.warn('[login] xCenter unavailable — falling back to DB validation');
+      } else {
+        return NextResponse.json(
+          { error: 'Invalid Employee ID.' },
+          { status: 401, headers: corsHeaders() }
+        );
+      }
+    }
+
+    // ── Step 2: Check store assignment + role in your own DB ─────────────────
     const { rows } = await pool.query(
       `select employee_id, employee_name, store_number, coalesce(role, 'Employee') as role
        from employees
@@ -36,24 +54,20 @@ export async function POST(request) {
       );
     }
 
+    // Use xCenter name if available, fall back to DB name
+    const employeeName =
+      xcenter.valid && (xcenter.firstName || xcenter.lastName)
+        ? `${xcenter.firstName} ${xcenter.lastName}`.trim()
+        : rows[0].employee_name;
+
     const userRole = rows[0].role;
     const isAdmin = userRole === 'Admin';
-    let adminToken;
-    if (isAdmin) {
-      adminToken = signAdminToken(rows[0].employee_id);
-      if (!adminToken) {
-        console.error('Admin login attempted but ADMIN_TOKEN_SECRET is not configured.');
-        return NextResponse.json(
-          { error: 'Admin login is not configured on the server.' },
-          { status: 500, headers: corsHeaders() }
-        );
-      }
-    }
+    const adminToken = isAdmin ? signAdminToken(rows[0].employee_id) : undefined;
 
     return NextResponse.json(
       {
         employeeId: rows[0].employee_id,
-        employeeName: rows[0].employee_name,
+        employeeName,
         storeNumber: rows[0].store_number,
         role: userRole,
         isAdmin,

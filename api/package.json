@@ -10,8 +10,9 @@
   },
   "dependencies": {
     "next": "latest",
+    "pg": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "pg": "latest"
+    "soap": "^1.13.1"
   }
 }
