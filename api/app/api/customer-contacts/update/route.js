@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
-import pool from '../../../../lib/db';
+import { runTransaction } from '../../../../lib/prisma';
+import { countsByCustomer, customerKey } from '../../../../lib/contactStatus';
 import { corsHeaders } from '../../../../lib/cors';
 
 export const dynamic = 'force-dynamic';
+
+// After this many assignments a customer is automatically closed as Do Not Attempt.
+const MAX_ATTEMPTS = 3;
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
@@ -19,48 +23,71 @@ export async function POST(request) {
     return NextResponse.json({ error: 'contacts must be an array' }, { status: 400, headers: corsHeaders() });
   }
 
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const validContacts = contacts.filter((c) => !!c.customer_name);
-    let updated = 0;
-    if (validContacts.length > 0) {
-      // Build a single bulk UPDATE using a VALUES table so the DB only needs
-      // one round-trip regardless of how many rows are being updated.
-      const valuePlaceholders = validContacts
-        .map((_, i) => `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}::text, $${i * 5 + 5})`)
-        .join(', ');
-      const flatParams = validContacts.flatMap((c) => [
-        c.contacted_to_store === 'Y' ? 'Y' : 'N',
-        c.attempted_to_store === 'Y' ? 'Y' : 'N',
-        c.do_not_attempt === 'Y' ? 'Y' : 'N',
-        typeof c.notes === 'string' ? c.notes.trim() || null : null,
-        c.customer_name,
+    const updated = await runTransaction(async (tx) => {
+      // First entry wins if the same customer is sent twice.
+      const valuesByName = new Map();
+      for (const c of contacts.filter((c) => !!c.customer_name)) {
+        const name = String(c.customer_name);
+        if (valuesByName.has(name)) continue;
+        valuesByName.set(name, {
+          contacted_to_store: c.contacted_to_store === 'Y' ? 'Y' : 'N',
+          attempted_to_store: c.attempted_to_store === 'Y' ? 'Y' : 'N',
+          do_not_attempt: c.do_not_attempt === 'Y' ? 'Y' : 'N',
+          notes: typeof c.notes === 'string' ? c.notes.trim() || null : null
+        });
+      }
+      if (valuesByName.size === 0) return 0;
+
+      const closedRows = await tx.storeAssignment.findMany({
+        where: { open_store: String(storeNumber) },
+        select: { closed_store: true }
+      });
+      const closedStores = closedRows.map((r) => r.closed_store);
+      if (closedStores.length === 0) return 0;
+
+      const names = [...valuesByName.keys()];
+      const [targets, attemptGroups] = await Promise.all([
+        tx.customerAssignment.findMany({
+          where: { customer_name: { in: names }, store_number: { in: closedStores } },
+          select: { customer_name: true, store_number: true },
+          distinct: ['customer_name', 'store_number']
+        }),
+        tx.employeeDailyAssignment.groupBy({
+          by: ['customer_name', 'store_number'],
+          where: { customer_name: { in: names }, store_number: { in: closedStores } },
+          _count: { _all: true }
+        })
       ]);
-      const storeParam = `$${validContacts.length * 5 + 1}`;
-      const result = await client.query(
-        `update customer_assignment ca
-         set contacted_to_store = v.contacted,
-             attempted_to_store = v.attempted,
-             do_not_attempt     = v.do_not_attempt,
-             notes              = v.notes
-         from (values ${valuePlaceholders})
-           as v(contacted, attempted, do_not_attempt, notes, customer_name)
-         where ca.customer_name = v.customer_name
-           and ca.store_number in (
-             select closed_store from store_assignment where open_store = ${storeParam}
-           )`,
-        [...flatParams, storeNumber]
-      );
-      updated = result.rowCount || 0;
-    }
-    await client.query('COMMIT');
+      const attemptCounts = countsByCustomer(attemptGroups);
+
+      let count = 0;
+      for (const target of targets) {
+        const data = { ...valuesByName.get(target.customer_name) };
+        // Auto-close rule: if a contact is being saved as "Attempted" (not Contacted)
+        // and the total assignment count for that customer has hit MAX_ATTEMPTS,
+        // promote it to "Do Not Attempt" instead so the case is closed.
+        if (
+          data.contacted_to_store === 'N' &&
+          data.attempted_to_store === 'Y' &&
+          (attemptCounts.get(customerKey(target)) || 0) >= MAX_ATTEMPTS
+        ) {
+          data.attempted_to_store = 'N';
+          data.do_not_attempt = 'Y';
+        }
+        // Every row with this name at this store, as the old bulk UPDATE did.
+        const result = await tx.customerAssignment.updateMany({
+          where: { customer_name: target.customer_name, store_number: target.store_number },
+          data
+        });
+        count += result.count;
+      }
+      return count;
+    });
+
     return NextResponse.json({ message: `Record (${updated}) updated successfully.` }, { headers: corsHeaders() });
   } catch (error) {
-    await client.query('ROLLBACK');
     console.error('Update error:', error);
     return NextResponse.json({ error: 'Failed to update contacts' }, { status: 500, headers: corsHeaders() });
-  } finally {
-    client.release();
   }
 }

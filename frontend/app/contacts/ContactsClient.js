@@ -2,8 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import StoreHeader from '../components/StoreHeader';
+import { clearEmployeeSession } from '../../lib/adminSession';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+
+const MAX_ATTEMPTS = 3;
 
 const toBool = (value) => {
   const str = String(value ?? '').trim().toLowerCase();
@@ -19,6 +23,7 @@ export default function ContactsClient() {
   const [contacts, setContacts] = useState([]);
   const [contactsState, setContactsState] = useState({ loading: false, error: '' });
   const [saveState, setSaveState] = useState({ saving: false, message: '' });
+  const [storeInfo, setStoreInfo] = useState(null);
 
   // Notes CRUD state: only one row's note can be in edit mode at a time.
   const [editingNoteIndex, setEditingNoteIndex] = useState(null);
@@ -39,7 +44,8 @@ export default function ContactsClient() {
     setContactsState({ loading: true, error: '' });
     try {
       const response = await fetch(
-        `${API_BASE}/api/customer-contacts?openStore=${encodeURIComponent(storeNo)}&employeeId=${encodeURIComponent(employeeId)}&assign=${assignNew}`
+        `${API_BASE}/api/customer-contacts?openStore=${encodeURIComponent(storeNo)}&employeeId=${encodeURIComponent(employeeId)}&assign=${assignNew}&_t=${Date.now()}`,
+        { cache: 'no-store' }
       );
       if (!response.ok) {
         let details = '';
@@ -65,9 +71,34 @@ export default function ContactsClient() {
   };
 
   useEffect(() => {
+    // Trap browser back button while logged in to prevent navigating back to login page
+    window.history.pushState(null, '', window.location.href);
+    const handlePopState = () => {
+      window.history.pushState(null, '', window.location.href);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  useEffect(() => {
     // Only assign new tasks on initial component mount (when arriving from login or a fresh refresh)
     fetchContacts(true);
   }, [storeNo, employeeId]);
+
+  // Store name/address header; stays hidden if the store has no store_details row.
+  useEffect(() => {
+    if (!storeNo) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/api/stores?store=${encodeURIComponent(storeNo)}`, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((row) => !cancelled && setStoreInfo(row))
+      .catch(() => !cancelled && setStoreInfo(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [storeNo]);
 
   // Auto-dismiss save notification toast after 3 seconds
   useEffect(() => {
@@ -295,11 +326,17 @@ export default function ContactsClient() {
           </div>
         </div>
         <div className="dash-navbar-actions">
-          <button className="btn ghost" onClick={() => router.push('/')}>
-            <i className="fa-solid fa-house" />
-            <span className="btn-label">Home</span>
+          <button className="btn ghost" onClick={() => fetchContacts(true)}>
+            <i className="fa-solid fa-rotate-right" />
+            <span className="btn-label">Refresh</span>
           </button>
-          <button className="btn ghost" onClick={() => router.push('/')}>
+          <button
+            className="btn ghost"
+            onClick={() => {
+              clearEmployeeSession();
+              router.replace('/');
+            }}
+          >
             <i className="fa-solid fa-arrow-right-from-bracket" />
             <span className="btn-label">Log out</span>
           </button>
@@ -308,6 +345,11 @@ export default function ContactsClient() {
 
       {/* ── Main body ── */}
       <div className="dash-body">
+        {storeInfo && (
+          <div className="section-card admin-section">
+            <StoreHeader store={storeInfo} />
+          </div>
+        )}
         <div className="section-card">
           {/* Section header */}
           <div className="section-header">
@@ -415,6 +457,17 @@ export default function ContactsClient() {
                                 <span className="completed-badge">
                                   <i className="fa-solid fa-check" />
                                   Completed
+                                </span>
+                              )}
+                              {contact.attempt_count > 0 && (
+                                <span className={`attempt-count-badge${contact.attempt_count >= MAX_ATTEMPTS ? ' danger' :
+                                    contact.attempt_count >= MAX_ATTEMPTS - 1 ? ' warning' : ''
+                                  }`}>
+                                  <i className="fa-solid fa-phone-volume" />
+                                  {contact.attempt_count >= MAX_ATTEMPTS
+                                    ? `${contact.attempt_count} attempts — will auto-close`
+                                    : `${contact.attempt_count} attempt${contact.attempt_count === 1 ? '' : 's'}`
+                                  }
                                 </span>
                               )}
                             </td>
@@ -554,6 +607,17 @@ export default function ContactsClient() {
                             <i className="fa-solid fa-store" />
                             Store {closedStore}
                           </span>
+                          {contact.attempt_count > 0 && (
+                            <span className={`contact-card-pill attempt-count-pill${contact.attempt_count >= MAX_ATTEMPTS ? ' danger' :
+                                contact.attempt_count >= MAX_ATTEMPTS - 1 ? ' warning' : ''
+                              }`}>
+                              <i className="fa-solid fa-phone-volume" />
+                              {contact.attempt_count >= MAX_ATTEMPTS
+                                ? `${contact.attempt_count} — auto-close`
+                                : `${contact.attempt_count} attempt${contact.attempt_count === 1 ? '' : 's'}`
+                              }
+                            </span>
+                          )}
                         </div>
 
                         {/* Checkboxes */}

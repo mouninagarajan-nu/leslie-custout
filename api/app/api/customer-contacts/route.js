@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import pool from '../../../lib/db';
+import { createManyIgnoringDuplicates, runTransaction, today } from '../../../lib/prisma';
+import { countsByCustomer, customerKey, isResolved, unresolvedWhere } from '../../../lib/contactStatus';
 import { corsHeaders } from '../../../lib/cors';
 
 export const dynamic = 'force-dynamic';
@@ -24,100 +25,84 @@ export async function GET(request) {
     return NextResponse.json({ error: 'employeeId is required' }, { status: 400, headers: corsHeaders() });
   }
 
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    const assignedDate = today();
 
-    const { rows: closedRows } = await client.query(
-      `select closed_store from store_assignment where open_store = $1`,
-      [openStore]
-    );
-    const closedStores = closedRows.map((r) => r.closed_store);
+    const { customers, myClaimKeys, attemptCounts } = await runTransaction(async (tx) => {
+      const closedRows = await tx.storeAssignment.findMany({
+        where: { open_store: openStore },
+        select: { closed_store: true }
+      });
+      const closedStores = closedRows.map((r) => r.closed_store);
 
-    if (closedStores.length > 0 && assignNew) {
-      // Count only *unresolved* tasks currently assigned to the user today,
-      // so they can keep pulling new tasks once they resolve their current ones.
-      const { rows: countRows } = await client.query(
-        `select count(*)::int as count
-         from employee_daily_assignments eda
-         join customer_assignment ca 
-           on ca.customer_name = eda.customer_name 
-          and ca.store_number = eda.store_number
-         where eda.employee_id = $1 
-           and eda.assigned_date = current_date 
-           and eda.store_number = any($2::text[])
-           and coalesce(ca.contacted_to_store, 'N') <> 'Y'
-           and coalesce(ca.attempted_to_store, 'N') <> 'Y'
-           and coalesce(ca.do_not_attempt, 'N') <> 'Y'`,
-        [employeeId, closedStores]
-      );
-      const needed = DAILY_QUOTA - countRows[0].count;
+      // Today's claims across the open store's closed stores (any employee).
+      const claimsToday = () =>
+        tx.employeeDailyAssignment.findMany({
+          where: { assigned_date: assignedDate, store_number: { in: closedStores } },
+          select: { employee_id: true, customer_name: true, store_number: true }
+        });
 
-      if (needed > 0) {
-        // Candidates: not yet resolved, and not already claimed by anyone today.
-        const { rows: candidates } = await client.query(
-          `select ca.customer_name, ca.store_number
-           from customer_assignment ca
-           where ca.store_number = any($1::text[])
-             and coalesce(ca.contacted_to_store, 'N') <> 'Y'
-             and coalesce(ca.attempted_to_store, 'N') <> 'Y'
-             and coalesce(ca.do_not_attempt, 'N') <> 'Y'
-             and not exists (
-               select 1 from employee_daily_assignments eda
-               where eda.customer_name = ca.customer_name
-                 and eda.store_number = ca.store_number
-                 and eda.assigned_date = current_date
-             )
-           order by ca.customer_name
-           limit $2`,
-          [closedStores, needed]
-        );
+      if (closedStores.length > 0 && assignNew) {
+        const claimed = await claimsToday();
+        const myKeys = new Set(claimed.filter((a) => a.employee_id === employeeId).map(customerKey));
 
-        if (candidates.length > 0) {
-          // Bulk-insert all candidates in a single round-trip.
-          // ON CONFLICT guards against a race where two requests claim the same customer;
-          // the loser's row is silently skipped.
-          const valuePlaceholders = candidates
-            .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
-            .join(', ');
-          const flatParams = [
-            employeeId,
-            ...candidates.flatMap((c) => [c.customer_name, c.store_number]),
-          ];
-          await client.query(
-            `insert into employee_daily_assignments (employee_id, customer_name, store_number)
-             values ${valuePlaceholders}
-             on conflict (customer_name, store_number, assigned_date) do nothing`,
-            flatParams
+        // Count only *unresolved* tasks currently assigned to the user today,
+        // so they can keep pulling new tasks once they resolve their current ones.
+        const unresolved = await tx.customerAssignment.findMany({
+          where: { ...unresolvedWhere, store_number: { in: closedStores } },
+          select: { customer_name: true, store_number: true },
+          orderBy: { customer_name: 'asc' }
+        });
+        const openCount = unresolved.filter((c) => myKeys.has(customerKey(c))).length;
+        const needed = DAILY_QUOTA - openCount;
+
+        if (needed > 0) {
+          // Candidates: not yet resolved, and not already claimed by anyone today.
+          const claimedKeys = new Set(claimed.map(customerKey));
+          const candidates = unresolved.filter((c) => !claimedKeys.has(customerKey(c))).slice(0, needed);
+
+          // Skipping duplicates guards against a race where two requests claim the
+          // same customer; the loser's row is silently skipped.
+          await createManyIgnoringDuplicates(
+            tx.employeeDailyAssignment,
+            candidates.map((c) => ({
+              employee_id: employeeId,
+              customer_name: c.customer_name,
+              store_number: c.store_number,
+              assigned_date: assignedDate
+            }))
           );
         }
       }
-    }
 
-    const { rows } = await client.query(
-      `select ca.customer_name,
-              ca.phone_number,
-              ca.contacted_to_store,
-              ca.attempted_to_store,
-              ca.do_not_attempt,
-              ca.notes,
-              ca.store_number as closed_store_number,
-              (eda.id is not null) as is_mine_today,
-              (
-                coalesce(ca.contacted_to_store, 'N') = 'Y'
-                or coalesce(ca.attempted_to_store, 'N') = 'Y'
-                or coalesce(ca.do_not_attempt, 'N') = 'Y'
-              ) as is_resolved
-       from customer_assignment ca
-       left join employee_daily_assignments eda
-         on eda.customer_name = ca.customer_name
-        and eda.store_number = ca.store_number
-        and eda.employee_id = $1
-        and eda.assigned_date = current_date
-       where ca.store_number = any($2::text[])
-       order by ca.customer_name`,
-      [employeeId, closedStores]
-    );
+      const [customerRows, claimedNow, attemptGroups] = await Promise.all([
+        tx.customerAssignment.findMany({
+          where: { store_number: { in: closedStores } },
+          select: {
+            customer_name: true,
+            phone_number: true,
+            contacted_to_store: true,
+            attempted_to_store: true,
+            do_not_attempt: true,
+            notes: true,
+            store_number: true
+          },
+          orderBy: { customer_name: 'asc' }
+        }),
+        claimsToday(),
+        tx.employeeDailyAssignment.groupBy({
+          by: ['customer_name', 'store_number'],
+          where: { store_number: { in: closedStores } },
+          _count: { _all: true }
+        })
+      ]);
+
+      return {
+        customers: customerRows,
+        myClaimKeys: new Set(claimedNow.filter((a) => a.employee_id === employeeId).map(customerKey)),
+        attemptCounts: countsByCustomer(attemptGroups)
+      };
+    });
 
     const maskPhone = (phone) => {
       const str = String(phone || '');
@@ -125,16 +110,20 @@ export async function GET(request) {
       return str.slice(0, -4) + 'xxxx';
     };
 
-    const shaped = rows.map((row) => {
-      const isMine = row.is_mine_today;
-      const isCompleted = isMine && row.is_resolved;
-      const isActionable = isMine && !row.is_resolved;
-      const { is_mine_today, is_resolved, ...rest } = row;
+    const shaped = customers.map((row) => {
+      const isMine = myClaimKeys.has(customerKey(row));
+      const resolved = isResolved(row);
       return {
-        ...rest,
-        phone_number: isMine ? rest.phone_number : maskPhone(rest.phone_number),
-        is_actionable: isActionable,
-        is_completed: isCompleted
+        customer_name: row.customer_name,
+        phone_number: isMine ? row.phone_number : maskPhone(row.phone_number),
+        contacted_to_store: row.contacted_to_store,
+        attempted_to_store: row.attempted_to_store,
+        do_not_attempt: row.do_not_attempt,
+        notes: row.notes,
+        closed_store_number: row.store_number,
+        attempt_count: attemptCounts.get(customerKey(row)) || 0,
+        is_actionable: isMine && !resolved,
+        is_completed: isMine && resolved
       };
     });
 
@@ -153,16 +142,12 @@ export async function GET(request) {
     const othersToShow = Math.max(MIN_ROWS - actionable.length, 0);
     const result = [...actionable, ...others.slice(0, othersToShow)];
 
-    await client.query('COMMIT');
     return NextResponse.json(result, { headers: corsHeaders() });
   } catch (error) {
-    await client.query('ROLLBACK');
     console.error('Database error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch customer contacts' },
       { status: 500, headers: corsHeaders() }
     );
-  } finally {
-    client.release();
   }
 }
