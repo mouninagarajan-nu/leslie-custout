@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import prisma, { createManyIgnoringDuplicates, today } from '../../../lib/prisma';
-import { isResolved, unresolvedWhere } from '../../../lib/contactStatus';
+import { createManyIgnoringDuplicates, runTransaction, today } from '../../../lib/prisma';
+import { countsByCustomer, customerKey, isResolved, unresolvedWhere } from '../../../lib/contactStatus';
 import { corsHeaders } from '../../../lib/cors';
 
 export const dynamic = 'force-dynamic';
@@ -28,38 +28,38 @@ export async function GET(request) {
   try {
     const assignedDate = today();
 
-    const rows = await prisma.$transaction(async (tx) => {
+    const { customers, myClaimKeys, attemptCounts } = await runTransaction(async (tx) => {
       const closedRows = await tx.storeAssignment.findMany({
         where: { open_store: openStore },
         select: { closed_store: true }
       });
       const closedStores = closedRows.map((r) => r.closed_store);
 
+      // Today's claims across the open store's closed stores (any employee).
+      const claimsToday = () =>
+        tx.employeeDailyAssignment.findMany({
+          where: { assigned_date: assignedDate, store_number: { in: closedStores } },
+          select: { employee_id: true, customer_name: true, store_number: true }
+        });
+
       if (closedStores.length > 0 && assignNew) {
+        const claimed = await claimsToday();
+        const myKeys = new Set(claimed.filter((a) => a.employee_id === employeeId).map(customerKey));
+
         // Count only *unresolved* tasks currently assigned to the user today,
         // so they can keep pulling new tasks once they resolve their current ones.
-        const openCount = await tx.employeeDailyAssignment.count({
-          where: {
-            employee_id: employeeId,
-            assigned_date: assignedDate,
-            store_number: { in: closedStores },
-            customer: { is: unresolvedWhere }
-          }
+        const unresolved = await tx.customerAssignment.findMany({
+          where: { ...unresolvedWhere, store_number: { in: closedStores } },
+          select: { customer_name: true, store_number: true },
+          orderBy: { customer_name: 'asc' }
         });
+        const openCount = unresolved.filter((c) => myKeys.has(customerKey(c))).length;
         const needed = DAILY_QUOTA - openCount;
 
         if (needed > 0) {
           // Candidates: not yet resolved, and not already claimed by anyone today.
-          const candidates = await tx.customerAssignment.findMany({
-            where: {
-              ...unresolvedWhere,
-              store_number: { in: closedStores },
-              assignments: { none: { assigned_date: assignedDate } }
-            },
-            select: { customer_name: true, store_number: true },
-            orderBy: { customer_name: 'asc' },
-            take: needed
-          });
+          const claimedKeys = new Set(claimed.map(customerKey));
+          const candidates = unresolved.filter((c) => !claimedKeys.has(customerKey(c))).slice(0, needed);
 
           // Skipping duplicates guards against a race where two requests claim the
           // same customer; the loser's row is silently skipped.
@@ -75,26 +75,33 @@ export async function GET(request) {
         }
       }
 
-      return tx.customerAssignment.findMany({
-        where: { store_number: { in: closedStores } },
-        select: {
-          customer_name: true,
-          phone_number: true,
-          contacted_to_store: true,
-          attempted_to_store: true,
-          do_not_attempt: true,
-          notes: true,
-          store_number: true,
-          // This employee's claim on the customer today, if any.
-          assignments: {
-            where: { employee_id: employeeId, assigned_date: assignedDate },
-            select: { id: true },
-            take: 1
+      const [customerRows, claimedNow, attemptGroups] = await Promise.all([
+        tx.customerAssignment.findMany({
+          where: { store_number: { in: closedStores } },
+          select: {
+            customer_name: true,
+            phone_number: true,
+            contacted_to_store: true,
+            attempted_to_store: true,
+            do_not_attempt: true,
+            notes: true,
+            store_number: true
           },
-          _count: { select: { assignments: true } }
-        },
-        orderBy: { customer_name: 'asc' }
-      });
+          orderBy: { customer_name: 'asc' }
+        }),
+        claimsToday(),
+        tx.employeeDailyAssignment.groupBy({
+          by: ['customer_name', 'store_number'],
+          where: { store_number: { in: closedStores } },
+          _count: { _all: true }
+        })
+      ]);
+
+      return {
+        customers: customerRows,
+        myClaimKeys: new Set(claimedNow.filter((a) => a.employee_id === employeeId).map(customerKey)),
+        attemptCounts: countsByCustomer(attemptGroups)
+      };
     });
 
     const maskPhone = (phone) => {
@@ -103,8 +110,8 @@ export async function GET(request) {
       return str.slice(0, -4) + 'xxxx';
     };
 
-    const shaped = rows.map((row) => {
-      const isMine = row.assignments.length > 0;
+    const shaped = customers.map((row) => {
+      const isMine = myClaimKeys.has(customerKey(row));
       const resolved = isResolved(row);
       return {
         customer_name: row.customer_name,
@@ -114,7 +121,7 @@ export async function GET(request) {
         do_not_attempt: row.do_not_attempt,
         notes: row.notes,
         closed_store_number: row.store_number,
-        attempt_count: row._count.assignments,
+        attempt_count: attemptCounts.get(customerKey(row)) || 0,
         is_actionable: isMine && !resolved,
         is_completed: isMine && resolved
       };

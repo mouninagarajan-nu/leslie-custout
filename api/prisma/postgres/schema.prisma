@@ -13,13 +13,17 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  // No foreign keys exist between these tables; Prisma resolves relations itself.
-  relationMode = "prisma"
 }
 
+// No foreign keys or Prisma relations: customers are matched to claims by
+// (customer_name, store_number), which isn't unique, so it can't be a relation.
+
 /// Customers to contact, per closed store. Y/N flags are CHAR(1) ('Y' | 'N').
+/// (customer_name, store_number) is NOT unique: different people can share a name
+/// at a store. The app still keys claims and updates by that pair.
 model CustomerAssignment {
-  customer_name      String   @db.VarChar(200)
+  id                 Int      @id @default(autoincrement())
+  customer_name     String   @db.VarChar(200)
   store_number       String   @db.VarChar(20)
   phone_number       String?  @db.VarChar(30)
   contacted_to_store String   @default("N") @db.Char(1)
@@ -28,9 +32,6 @@ model CustomerAssignment {
   notes              String?
   updated_timestamp  DateTime @default(now()) @db.Timestamptz(6)
 
-  assignments EmployeeDailyAssignment[]
-
-  @@id([customer_name, store_number])
   @@map("customer_assignment")
 }
 
@@ -48,7 +49,7 @@ model Employee {
   employee_id   String   @id @db.VarChar(50)
   store_number  String   @db.VarChar(20)
   employee_name String?  @db.VarChar(200)
-  /// 'Admin' | 'Employee' (case-sensitive)
+  /// Exactly 'Admin' (case-sensitive) marks an admin; anything else is an employee.
   role          String   @default("Employee") @db.VarChar(20)
   created_at    DateTime @default(now()) @db.Timestamptz(6)
 
@@ -64,8 +65,6 @@ model EmployeeDailyAssignment {
   store_number  String   @db.VarChar(20)
   assigned_date DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
   created_at    DateTime @default(now()) @db.Timestamptz(6)
-
-  customer CustomerAssignment @relation(fields: [customer_name, store_number], references: [customer_name, store_number], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([customer_name, store_number, assigned_date], map: "uq_customer_per_day")
   @@index([employee_id, assigned_date], map: "idx_eda_employee_date")

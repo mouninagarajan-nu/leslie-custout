@@ -1,57 +1,41 @@
 import { NextResponse } from 'next/server';
-import pool from '../../../../lib/db';
+import prisma from '../../../../lib/prisma';
 import { corsHeaders } from '../../../../lib/cors';
 import { verifyAdminRequest } from '../../../../lib/adminAuth';
-import { storeInUse } from '../../../../lib/stores';
+import { customerKey } from '../../../../lib/contactStatus';
+import { STORE_SELECT, findOpenStores } from '../../../../lib/stores';
 
 export const dynamic = 'force-dynamic';
-
-// Exclude the virtual admin store from store lists / queries
-const ADMIN_STORE_NUMBER = process.env.ADMIN_STORE_NUMBER || '9999';
 
 const MAX_CONTACT_ROWS = 500;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-const IS_CONTACTED = `coalesce(contacted_to_store, 'N') = 'Y'`;
-const IS_ATTEMPTED = `coalesce(attempted_to_store, 'N') = 'Y'`;
-const IS_DNA = `coalesce(do_not_attempt, 'N') = 'Y'`;
-const IS_PENDING = `not (${IS_CONTACTED} or ${IS_ATTEMPTED} or ${IS_DNA})`;
+const isContacted = (r) => r.contacted_to_store === 'Y';
+const isAttempted = (r) => r.attempted_to_store === 'Y';
+const isDna = (r) => r.do_not_attempt === 'Y';
+const isPending = (r) => !(isContacted(r) || isAttempted(r) || isDna(r));
 
-// Whitelisted `status` values → SQL predicate on customer_assignment columns.
+// Whitelisted `status` values → predicate on customer_assignment rows.
 const STATUS_FILTERS = {
-  all: 'true',
-  contacted: IS_CONTACTED,
-  attempted: IS_ATTEMPTED,
-  do_not_attempt: IS_DNA,
-  pending: IS_PENDING
+  all: () => true,
+  contacted: isContacted,
+  attempted: isAttempted,
+  do_not_attempt: isDna,
+  pending: isPending
 };
 
-const METRIC_COLUMNS = `
-  count(*)::int as total,
-  count(*) filter (where ${IS_CONTACTED})::int as contacted,
-  count(*) filter (where ${IS_ATTEMPTED})::int as attempted,
-  count(*) filter (where ${IS_DNA})::int as do_not_attempt,
-  count(*) filter (where ${IS_PENDING})::int as pending`;
+const count = (rows, predicate) => rows.reduce((n, r) => n + (predicate(r) ? 1 : 0), 0);
 
-const STORE_COLUMNS = `store_nbr, store_name, address1, address2, city, state, postal_code,
-  country, telephone1, store_manager, email_addr`;
+const metricsOf = (rows) => ({
+  total: rows.length,
+  contacted: count(rows, isContacted),
+  attempted: count(rows, isAttempted),
+  do_not_attempt: count(rows, isDna),
+  pending: count(rows, isPending)
+});
 
-// A store matches its own customers (closed store) and those of every closed store
-// mapped to it in store_assignment (open store).
-const storeMatch = (storeExpr) => `(
-  ca.store_number = ${storeExpr}
-  or ca.store_number in (select closed_store from store_assignment where open_store = ${storeExpr})
-)`;
-
-// A customer is "in range" if it was assigned to an employee on a day within the range.
-const dateMatch = (fromParam, toParam) => `(
-  ${fromParam}::date is null or exists (
-    select 1 from employee_daily_assignments eda
-    where eda.customer_name = ca.customer_name
-      and eda.store_number = ca.store_number
-      and eda.assigned_date between ${fromParam}::date and ${toParam}::date
-  )
-)`;
+/** DATE column value → 'YYYY-MM-DD' */
+const toDateString = (date) => date.toISOString().slice(0, 10);
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
@@ -91,101 +75,110 @@ export async function GET(request) {
     );
   }
 
-  // $1 = store (null => all), $2/$3 = date range (null => all time)
-  // When store=all, scope to only customers belonging to open stores
-  // (or their mapped closed stores) so purely closed-only stores are excluded.
-  const scopedCte = `
-    with scoped as (
-      select ca.customer_name, ca.store_number, ca.contacted_to_store,
-             ca.attempted_to_store, ca.do_not_attempt, ca.notes
-      from customer_assignment ca
-      where ($1::text is null or ${storeMatch('$1')})
-        and ($1::text is not null or exists (
-          select 1 from store_assignment sa
-          where sa.open_store = ca.store_number
-             or sa.closed_store = ca.store_number
-        ))
-        and ${dateMatch('$2', '$3')}
-    )`;
-  const params = [store, from, to];
-
-  const metricsQuery = () => pool.query(`${scopedCte} select ${METRIC_COLUMNS} from scoped`, params);
-
-  const storesQuery = () =>
-    pool.query(
-      `select ${STORE_COLUMNS.split(',').map((c) => `l.${c.trim()}`).join(', ')}, m.*
-       from store_details l
-       inner join store_assignment sa on trim(sa.open_store) = trim(l.store_nbr)
-       cross join lateral (
-         select ${METRIC_COLUMNS}
-         from customer_assignment ca
-         where ${storeMatch('l.store_nbr')}
-           and ${dateMatch('$1', '$2')}
-       ) m
-       where coalesce(l.record_state, 'ACTIVE') = 'ACTIVE'
-         and l.store_nbr <> $3
-       group by ${STORE_COLUMNS.split(',').map((c) => `l.${c.trim()}`).join(', ')}, m.total, m.contacted, m.attempted, m.do_not_attempt, m.pending
-       order by case when l.store_nbr ~ '^[0-9]+$' then l.store_nbr::numeric end, l.store_nbr`,
-      [from, to, ADMIN_STORE_NUMBER]
-    );
-
-  const storeDetailQuery = () =>
-    pool.query(`select ${STORE_COLUMNS} from store_details where store_nbr = $1`, [store]);
-
-  // Latest assignment (within the range, if any) tells the admin who worked each customer.
-  const contactsQuery = () =>
-    pool.query(
-      `${scopedCte}
-       select s.customer_name,
-              s.store_number as closed_store_number,
-              s.contacted_to_store,
-              s.attempted_to_store,
-              s.do_not_attempt,
-              s.notes,
-              la.employee_id as assigned_employee_id,
-              e.employee_name as assigned_employee_name,
-              to_char(la.assigned_date, 'YYYY-MM-DD') as assigned_date,
-              (
-                select count(*)::int
-                from employee_daily_assignments eda2
-                where eda2.customer_name = s.customer_name
-                  and eda2.store_number = s.store_number
-              ) as attempt_count
-       from scoped s
-       left join lateral (
-         select eda.employee_id, eda.assigned_date
-         from employee_daily_assignments eda
-         where eda.customer_name = s.customer_name
-           and eda.store_number = s.store_number
-           and ($2::date is null or eda.assigned_date between $2::date and $3::date)
-         order by eda.assigned_date desc
-         limit 1
-       ) la on true
-       left join employees e on e.employee_id = la.employee_id
-       where ${STATUS_FILTERS[status || 'all']}
-       order by s.store_number, s.customer_name
-       limit ${MAX_CONTACT_ROWS + 1}`,
-      params
-    );
-
   const wantContacts = !!store || !!status;
+  const inRange = (dateString) => !from || (dateString >= from && dateString <= to);
 
   try {
-    const [metricsRes, extraRes, contactsRes] = await Promise.all([
-      metricsQuery(),
-      store ? storeDetailQuery() : storesQuery(),
-      wantContacts ? contactsQuery() : null
+    const pairs = await prisma.storeAssignment.findMany({ select: { open_store: true, closed_store: true } });
+    const closedOf = (openStore) => pairs.filter((p) => p.open_store === openStore).map((p) => p.closed_store);
+    // A store matches its own customers (closed store) and those of every closed store
+    // mapped to it in store_assignment (open store).
+    const storesMatching = (storeNbr) => new Set([storeNbr, ...closedOf(storeNbr)]);
+
+    const [storeDetail, openStores] = await Promise.all([
+      store ? prisma.storeDetails.findFirst({ where: { store_nbr: store }, select: STORE_SELECT }) : null,
+      store ? null : findOpenStores(prisma)
     ]);
 
-    const body = { scope: store ? 'store' : 'all', from, to, status, metrics: metricsRes.rows[0] };
-    if (store) {
-      body.store = extraRes.rows[0] || { store_nbr: store };
-    } else {
-      body.stores = extraRes.rows;
+    // Scope: one store (and its closed stores), or — for store=all — only customers of
+    // stores in store_assignment, so purely closed-only stores are excluded.
+    const scopeStores = store
+      ? storesMatching(store)
+      : new Set(pairs.flatMap((p) => [p.open_store, p.closed_store]));
+    const fetchStores = new Set([...scopeStores, ...(openStores || []).map((s) => s.store_nbr)]);
+
+    const [customers, claims] = await Promise.all([
+      prisma.customerAssignment.findMany({
+        where: { store_number: { in: [...fetchStores] } },
+        select: {
+          customer_name: true,
+          store_number: true,
+          contacted_to_store: true,
+          attempted_to_store: true,
+          do_not_attempt: true,
+          notes: true
+        },
+        orderBy: [{ store_number: 'asc' }, { customer_name: 'asc' }]
+      }),
+      prisma.employeeDailyAssignment.findMany({
+        where: { store_number: { in: [...fetchStores] } },
+        select: { employee_id: true, customer_name: true, store_number: true, assigned_date: true }
+      })
+    ]);
+
+    // Per customer: total claims, whether any claim falls in the date range, and the
+    // latest claim within the range (or overall, with no range).
+    const claimInfo = new Map();
+    for (const claim of claims) {
+      const key = customerKey(claim);
+      const info = claimInfo.get(key) || { attempts: 0, inRange: false, latest: null };
+      const date = toDateString(claim.assigned_date);
+      info.attempts += 1;
+      if (inRange(date)) {
+        info.inRange = true;
+        if (!info.latest || date > info.latest.assigned_date) {
+          info.latest = { employee_id: claim.employee_id, assigned_date: date };
+        }
+      }
+      claimInfo.set(key, info);
     }
-    if (contactsRes) {
-      body.contacts = contactsRes.rows.slice(0, MAX_CONTACT_ROWS);
-      body.truncated = contactsRes.rows.length > MAX_CONTACT_ROWS;
+    // A customer is "in range" if it was assigned to an employee on a day within the range.
+    const dateOk = (c) => !from || !!claimInfo.get(customerKey(c))?.inRange;
+
+    const scoped = customers.filter((c) => scopeStores.has(c.store_number) && dateOk(c));
+    const body = { scope: store ? 'store' : 'all', from, to, status, metrics: metricsOf(scoped) };
+
+    if (store) {
+      body.store = storeDetail || { store_nbr: store };
+    } else {
+      body.stores = openStores.map((s) => {
+        const matching = storesMatching(s.store_nbr);
+        return { ...s, ...metricsOf(customers.filter((c) => matching.has(c.store_number) && dateOk(c))) };
+      });
+    }
+
+    if (wantContacts) {
+      const rows = scoped.filter(STATUS_FILTERS[status || 'all']).slice(0, MAX_CONTACT_ROWS + 1);
+      const employeeIds = [
+        ...new Set(rows.map((r) => claimInfo.get(customerKey(r))?.latest?.employee_id).filter(Boolean))
+      ];
+      const employees = employeeIds.length
+        ? await prisma.employee.findMany({
+            where: { employee_id: { in: employeeIds } },
+            select: { employee_id: true, employee_name: true }
+          })
+        : [];
+      const nameById = new Map(employees.map((e) => [e.employee_id, e.employee_name]));
+
+      // Latest assignment (within the range, if any) tells the admin who worked each customer.
+      const contacts = rows.map((r) => {
+        const info = claimInfo.get(customerKey(r));
+        const latest = info?.latest;
+        return {
+          customer_name: r.customer_name,
+          closed_store_number: r.store_number,
+          contacted_to_store: r.contacted_to_store,
+          attempted_to_store: r.attempted_to_store,
+          do_not_attempt: r.do_not_attempt,
+          notes: r.notes,
+          assigned_employee_id: latest?.employee_id ?? null,
+          assigned_employee_name: latest ? nameById.get(latest.employee_id) ?? null : null,
+          assigned_date: latest?.assigned_date ?? null,
+          attempt_count: info?.attempts ?? 0
+        };
+      });
+      body.contacts = contacts.slice(0, MAX_CONTACT_ROWS);
+      body.truncated = contacts.length > MAX_CONTACT_ROWS;
     }
 
     return NextResponse.json(body, { headers: corsHeaders() });
