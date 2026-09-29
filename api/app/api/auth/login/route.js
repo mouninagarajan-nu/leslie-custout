@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import pool from '../../../../lib/db';
+import prisma from '../../../../lib/prisma';
 import { corsHeaders } from '../../../../lib/cors';
 import { signAdminToken } from '../../../../lib/adminAuth';
 import { validateEmployee } from '../../../../lib/xcenter';
@@ -40,12 +40,16 @@ export async function POST(request) {
     }
 
     // ── Step 2: Check store assignment + role in your own DB ─────────────────
-    const { rows } = await pool.query(
-      `select employee_id, employee_name, store_number, coalesce(role, 'Employee') as role
-       from employees
-       where UPPER(employee_id) = UPPER($1) and store_number = $2`,
-      [employeeId, storeNumber]
-    );
+    // Employee IDs match case-insensitively. Filtering in JS keeps that identical on
+    // both dialects (Prisma's `mode: 'insensitive'` is Postgres-only); a store has
+    // only a handful of employees.
+    const storeEmployees = await prisma.employee.findMany({
+      where: { store_number: storeNumber },
+      select: { employee_id: true, employee_name: true, store_number: true, role: true }
+    });
+    const rows = storeEmployees
+      .filter((e) => e.employee_id.toUpperCase() === employeeId.toUpperCase())
+      .map((e) => ({ ...e, role: e.role ?? 'Employee' }));
 
     if (rows.length === 0) {
       return NextResponse.json(

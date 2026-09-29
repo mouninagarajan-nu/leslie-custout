@@ -7,6 +7,7 @@ IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = N'dbo') EXEC sp_executesql
 
 -- CreateTable
 CREATE TABLE [dbo].[customer_assignment] (
+    [id] INT NOT NULL IDENTITY(1,1),
     [customer_name] NVARCHAR(200) NOT NULL,
     [store_number] NVARCHAR(20) NOT NULL,
     [phone_number] NVARCHAR(30),
@@ -15,7 +16,7 @@ CREATE TABLE [dbo].[customer_assignment] (
     [do_not_attempt] CHAR(1) CONSTRAINT [customer_assignment_do_not_attempt_df] DEFAULT 'N',
     [notes] NVARCHAR(max),
     [updated_timestamp] DATETIME2 NOT NULL CONSTRAINT [customer_assignment_updated_timestamp_df] DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT [customer_assignment_pkey] PRIMARY KEY CLUSTERED ([customer_name],[store_number])
+    CONSTRAINT [customer_assignment_pkey] PRIMARY KEY CLUSTERED ([id])
 );
 
 -- CreateTable

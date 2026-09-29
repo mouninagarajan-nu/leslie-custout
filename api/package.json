@@ -11,7 +11,9 @@
     "db:setup": "node scripts/db-setup.js",
     "db:check:postgres": "prisma migrate diff --from-schema-datasource prisma/postgres/schema.prisma --to-schema-datamodel prisma/postgres/schema.prisma --exit-code",
     "db:migrate:mssql": "prisma migrate dev --schema prisma/mssql/schema.prisma",
-    "db:deploy:mssql": "prisma migrate deploy --schema prisma/mssql/schema.prisma"
+    "db:deploy:mssql": "prisma migrate deploy --schema prisma/mssql/schema.prisma",
+    "db:seed:mssql": "node --env-file=.env scripts/seed-mssql.js",
+    "db:mirror:mssql": "node --env-file=.env scripts/mirror-to-mssql.js"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

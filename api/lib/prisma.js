@@ -65,6 +65,29 @@ if (process.env.NODE_ENV !== 'production') {
 
 export default prisma;
 
+const MAX_TRANSACTION_ATTEMPTS = 3;
+
+/**
+ * `prisma.$transaction(fn)`, retried when the database aborts it as a deadlock or
+ * write conflict (P2034). SQL Server does this when two requests claim the same
+ * customers at once, e.g. the contacts page double-fetching on load; Postgres's
+ * skipDuplicates absorbs that case, so this rarely fires there.
+ *
+ * @template T
+ * @param {(tx: DbTransaction) => Promise<T>} fn  Must be safe to re-run from scratch.
+ * @returns {Promise<T>}
+ */
+export async function runTransaction(fn) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await prisma.$transaction(fn);
+    } catch (error) {
+      if (error?.code !== 'P2034' || attempt >= MAX_TRANSACTION_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * attempt + Math.random() * 50));
+    }
+  }
+}
+
 /**
  * Today's date as stored in DATE columns (UTC midnight), replacing SQL `current_date`.
  * UTC matches Supabase's server timezone, so existing rows line up.
