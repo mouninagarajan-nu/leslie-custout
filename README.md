@@ -13,7 +13,7 @@ The repository is structured as a monorepo with two independent Next.js applicat
   - **`/contacts`**: Customer Contacts workflow screen with attempt counts, status tracking badges, masked phone numbers, and interactive notes
   - **`/admin`**: Centralized Admin Dashboard for store performance monitoring, store filters, date range aggregations, and contact detail views
 - **`api/`**: Next.js Route Handlers backend (`http://localhost:4000`)
-  - **`/api/auth/login`**: Employee authentication & xCenter SOAP identity validation
+  - **`/api/auth/login`**: Employee ID validation and IP-based store resolution via POSAPI
   - **`/api/customer-contacts`**: Dynamic customer contact fetch & daily assignment queue
   - **`/api/customer-contacts/update`**: Status update handler with automatic "Do Not Attempt" promotion after 3 attempts
   - **`/api/admin/dashboard`**: Authenticated metric aggregation for store operational metrics
@@ -40,7 +40,9 @@ The repository is structured as a monorepo with two independent Next.js applicat
      DATABASE_URL=postgresql://user:password@host:5432/postgres
      DB_SSL=true
      FRONTEND_ORIGIN=http://localhost:3000
-     XCENTER_WSDL_URL=https://posapidev.lesl.com/POSApiServices.asmx?WSDL
+     POSAPI_WSDL_URL=https://posapidev.lesl.com/POSApiServices.asmx?WSDL
+     # Local dev only: store to use when the IP can't be resolved
+     POSAPI_DEFAULT_STORE=
      ```
    - Copy `frontend/.env.example` to `frontend/.env.local`:
      ```env
@@ -55,11 +57,15 @@ The repository is structured as a monorepo with two independent Next.js applicat
 
 ---
 
-## 🔑 Authentication & xCenter Integration
+## 🔑 Authentication (POSAPI)
 
-- **xCenter SOAP API**: Integrates with Leslie's xCenter POS system (`checkPassword` endpoint) to validate employee identity in real time.
-- **Fallback Security**: Includes automatic fallback to internal database validation if the xCenter service is unreachable (e.g., when working off-VPN during local development).
-- **Admin RBAC**: Admin access is governed by the `role` column in the `employees` database table (`Admin` role) and secured using HMAC token authentication.
+Login follows the same pattern as Water Test: employees enter only their **Employee ID**, and the store comes from the device they sign in on.
+
+- **Employee ID**: validated with POSAPI `checkPassword` (sent with an empty password; we only check that the employee exists). The employee's home store is not used, so transferred employees can sign in.
+- **Store**: POSAPI `getStoreNumber` maps the client IP to a store via `fillableforms.dbo.storeRegister`. An IP that isn't registered gets **403**; if POSAPI can't be reached, login returns **503** and asks the user to retry.
+- **Fallback**: if POSAPI is disabled (`POSAPI_ENABLED=false`) or unreachable, the Employee ID must exist in the local `employees` table. The store still can't be resolved without POSAPI unless `POSAPI_DEFAULT_STORE` is set (local dev only, never production).
+- **Admin RBAC**: Admin access is governed by the `role` column in the `employees` database table (`Admin` role) and secured using HMAC token authentication. Admins skip the IP lookup and use the virtual admin store (`ADMIN_STORE_NUMBER`, default `9999`).
+- **Probe**: `node test-posapi.mjs <employeeId> [ipAddress]` (from `api/`, VPN only) prints the raw POSAPI requests and responses.
 
 ---
 

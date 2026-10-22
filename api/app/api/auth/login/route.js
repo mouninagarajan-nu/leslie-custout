@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import prisma from '../../../../lib/prisma';
 import { corsHeaders } from '../../../../lib/cors';
 import { signAdminToken } from '../../../../lib/adminAuth';
-import { validateEmployee } from '../../../../lib/xcenter';
+import { checkEmployee, getStoreByIp } from '../../../../lib/posapi';
+import { ADMIN_STORE_NUMBER } from '../../../../lib/stores';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,69 +11,92 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
 
+// First hop of x-forwarded-for is the browser's address as seen by our host's proxy.
+function clientIp(request) {
+  return (
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    '127.0.0.1'
+  );
+}
+
 export async function POST(request) {
   const body = await request.json().catch(() => ({}));
   const employeeId = typeof body?.employeeId === 'string' ? body.employeeId.trim() : '';
-  const storeNumber = typeof body?.storeNumber === 'string' ? body.storeNumber.trim() : '';
 
-  if (!employeeId || !storeNumber) {
+  if (!employeeId) {
     return NextResponse.json(
-      { error: 'Employee ID and Store Number are required' },
+      { error: 'Employee ID is required' },
       { status: 400, headers: corsHeaders() }
     );
   }
 
   try {
-    // ── Step 1: Validate employee identity via xCenter SOAP API ──────────────
-    const xcenter = await validateEmployee(employeeId);
-
-    if (!xcenter.valid) {
-      // If xCenter itself is down, fall back to DB-only validation so the app
-      // keeps working during outages. Remove this block if you want strict mode.
-      if (xcenter.error === 'xCenter service unavailable') {
-        console.warn('[login] xCenter unavailable — falling back to DB validation');
-      } else {
-        return NextResponse.json(
-          { error: 'Invalid Employee ID.' },
-          { status: 401, headers: corsHeaders() }
-        );
-      }
+    // ── Step 1: Validate the employee ID via POSAPI (same as Water Test) ──────
+    // Only whether the ID exists matters; the employee's home store is ignored so
+    // transferred employees can still log in.
+    const posapi = await checkEmployee(employeeId);
+    if (!posapi.valid && !posapi.skipped) {
+      return NextResponse.json({ error: 'Invalid Employee ID.' }, { status: 401, headers: corsHeaders() });
     }
 
-    // ── Step 2: Check store assignment + role in your own DB ─────────────────
+    // ── Step 2: Role (and fallback validation) from the local employees table ─
     // Employee IDs match case-insensitively. Filtering in JS keeps that identical on
-    // both dialects (Prisma's `mode: 'insensitive'` is Postgres-only); a store has
-    // only a handful of employees.
-    const storeEmployees = await prisma.employee.findMany({
-      where: { store_number: storeNumber },
-      select: { employee_id: true, employee_name: true, store_number: true, role: true }
+    // both dialects (Prisma's `mode: 'insensitive'` is Postgres-only).
+    const employees = await prisma.employee.findMany({
+      select: { employee_id: true, employee_name: true, role: true }
     });
-    const rows = storeEmployees
-      .filter((e) => e.employee_id.toUpperCase() === employeeId.toUpperCase())
-      .map((e) => ({ ...e, role: e.role ?? 'Employee' }));
+    const record = employees.find((e) => e.employee_id.toUpperCase() === employeeId.toUpperCase());
 
-    if (rows.length === 0) {
-      return NextResponse.json(
-        { error: 'Invalid Employee ID or Store Number.' },
-        { status: 401, headers: corsHeaders() }
-      );
+    // POSAPI disabled or unreachable: the local table is the only check left.
+    if (posapi.skipped && !record) {
+      return NextResponse.json({ error: 'Invalid Employee ID.' }, { status: 401, headers: corsHeaders() });
     }
 
-    // Use xCenter name if available, fall back to DB name
-    const employeeName =
-      xcenter.valid && (xcenter.firstName || xcenter.lastName)
-        ? `${xcenter.firstName} ${xcenter.lastName}`.trim()
-        : rows[0].employee_name;
-
-    const userRole = rows[0].role;
+    const userRole = record?.role ?? 'Employee';
     const isAdmin = userRole === 'Admin';
-    const adminToken = isAdmin ? signAdminToken(rows[0].employee_id) : undefined;
+
+    // ── Step 3: Store comes from the device's IP via POSAPI ───────────────────
+    // POSAPI maps register IPs to stores (fillableforms.dbo.storeRegister). Admins
+    // sign in from outside stores and always use the virtual admin store.
+    // TODO(VPN): check whether storeRegister holds public or private (10.x/192.168.x)
+    // IPs. This reads the IP our host sees; if the table holds private register IPs
+    // and the API runs outside the store network, every lookup will miss.
+    let storeNumber = ADMIN_STORE_NUMBER;
+    if (!isAdmin) {
+      const ip = clientIp(request);
+      const store = await getStoreByIp(ip);
+      if (!store.storeNumber) {
+        console.warn(
+          `[login] store lookup ${store.reason}: employeeId=${employeeId} ` +
+            `x-forwarded-for=${JSON.stringify(request.headers.get('x-forwarded-for'))} ` +
+            `x-real-ip=${JSON.stringify(request.headers.get('x-real-ip'))} parsedIp=${ip}`
+        );
+        return store.reason === 'not_found'
+          ? NextResponse.json(
+              { error: 'This device is not registered to a store. Please sign in from a store register.' },
+              { status: 403, headers: corsHeaders() }
+            )
+          : NextResponse.json(
+              { error: 'Unable to determine your store right now. Please try again shortly.' },
+              { status: 503, headers: corsHeaders() }
+            );
+      }
+      storeNumber = store.storeNumber;
+    }
+
+    const employeeName =
+      posapi.firstName || posapi.lastName
+        ? `${posapi.firstName} ${posapi.lastName}`.trim()
+        : record?.employee_name || '';
+    const canonicalId = record?.employee_id ?? employeeId;
+    const adminToken = isAdmin ? signAdminToken(canonicalId) : undefined;
 
     return NextResponse.json(
       {
-        employeeId: rows[0].employee_id,
+        employeeId: canonicalId,
         employeeName,
-        storeNumber: rows[0].store_number,
+        storeNumber,
         role: userRole,
         isAdmin,
         ...(adminToken && { adminToken })

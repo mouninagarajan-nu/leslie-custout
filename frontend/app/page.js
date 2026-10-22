@@ -13,7 +13,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000'
 const ADMIN_STORE_NUMBER = process.env.NEXT_PUBLIC_ADMIN_STORE_NUMBER || '9999';
 
 export default function LoginPage() {
-  const [form, setForm] = useState({ employeeId: '', storeNo: '' });
+  const [form, setForm] = useState({ employeeId: '', storeNo: '' }); // storeNo only used for admin mode
   const [errors, setErrors] = useState({});
   const [status, setStatus] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -45,6 +45,8 @@ export default function LoginPage() {
 
   const switchMode = (admin) => {
     setIsAdminMode(admin);
+    // storeNo is only meaningful for admin logins (store 9999).
+    // For employee logins the store is resolved server-side from the client IP.
     setForm((prev) => ({ ...prev, storeNo: admin ? ADMIN_STORE_NUMBER : '' }));
     resetStatus();
   };
@@ -63,7 +65,8 @@ export default function LoginPage() {
     event.preventDefault();
     const nextErrors = {};
     if (!form.employeeId.trim()) nextErrors.employeeId = 'Employee ID is required.';
-    if (!form.storeNo.trim()) nextErrors.storeNo = 'Store number is required.';
+    // Admin mode requires a store number (9999); employee mode derives it from IP server-side.
+    if (isAdminMode && !form.storeNo.trim()) nextErrors.storeNo = 'Store number is required.';
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       return;
@@ -72,17 +75,19 @@ export default function LoginPage() {
     setStatus('Signing in…');
     setSubmitting(true);
     try {
+      const requestBody = { employeeId: form.employeeId.trim() };
+      // For admin logins, send the store number (9999). Employee logins omit it —
+      // the backend resolves the store from the client IP via POSAPI.
+      if (isAdminMode) requestBody.storeNumber = form.storeNo.trim();
+
       const response = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          employeeId: form.employeeId.trim(),
-          storeNumber: form.storeNo.trim()
-        })
+        body: JSON.stringify(requestBody)
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(body?.error || 'Invalid Employee ID or Store Number.');
+        throw new Error(body?.error || (response.status >= 500 ? 'Unable to sign in right now. Please try again shortly.' : 'Invalid Employee ID.'));
       }
       if (body?.isAdmin && body?.adminToken) {
         saveAdminSession({
@@ -97,14 +102,16 @@ export default function LoginPage() {
       if (isAdminMode) {
         throw new Error('This account does not have admin access.');
       }
+      // Use the store number resolved by the backend (from IP via POSAPI).
+      const resolvedStore = body.storeNumber || form.storeNo;
       saveEmployeeSession({
-        storeNo: form.storeNo.trim(),
-        employeeId: form.employeeId.trim(),
+        storeNo: resolvedStore,
+        employeeId: body.employeeId || form.employeeId.trim(),
         employeeName: body.employeeName
       });
       setStatus('');
       router.replace(
-        `/contacts?store=${encodeURIComponent(form.storeNo.trim())}&emp=${encodeURIComponent(form.employeeId.trim())}`
+        `/contacts?store=${encodeURIComponent(resolvedStore)}&emp=${encodeURIComponent(body.employeeId || form.employeeId.trim())}`
       );
     } catch (error) {
       setStatus('');
@@ -195,20 +202,22 @@ export default function LoginPage() {
               />
             </div>
 
-            {/* Store No. */}
-            <div className="field-wrapper">
-              <i className="fa-solid fa-store field-icon" />
-              <input
-                type="text"
-                className="field-input"
-                placeholder="Store No."
-                value={form.storeNo}
-                onChange={(e) => handleChange('storeNo', e.target.value)}
-                readOnly={isAdminMode}
-                title={isAdminMode ? 'Admins sign in with the virtual admin store' : undefined}
-                autoComplete="off"
-              />
-            </div>
+            {/* Store No. — shown only in admin mode (employees' store is resolved from IP) */}
+            {isAdminMode && (
+              <div className="field-wrapper">
+                <i className="fa-solid fa-store field-icon" />
+                <input
+                  type="text"
+                  className="field-input"
+                  placeholder="Store No."
+                  value={form.storeNo}
+                  onChange={(e) => handleChange('storeNo', e.target.value)}
+                  readOnly
+                  title="Admins sign in with the virtual admin store"
+                  autoComplete="off"
+                />
+              </div>
+            )}
 
             <button type="submit" className="btn-signin" disabled={submitting}>
               {submitting ? (
