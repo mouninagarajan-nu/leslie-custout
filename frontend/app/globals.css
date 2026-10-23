@@ -1257,7 +1257,8 @@ input[type='checkbox']:disabled {
   border-radius: var(--radius-md);
 }
 
-.login-mode-toggle button {
+.login-mode-toggle button,
+.admin-view-toggle button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1274,10 +1275,35 @@ input[type='checkbox']:disabled {
   transition: all 0.18s ease;
 }
 
-.login-mode-toggle button.active {
+.login-mode-toggle button.active,
+.admin-view-toggle button.active {
   background: var(--white);
   color: var(--accent);
   box-shadow: var(--shadow-sm);
+}
+
+/* Same segmented control, beside the Stores section title (Card View / Table View) */
+.section-header-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+.admin-view-toggle {
+  display: inline-flex;
+  box-sizing: border-box;
+  height: 38px;
+  gap: 4px;
+  padding: 3px;
+  background: var(--gray-100);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+}
+
+.admin-view-toggle button {
+  padding: 0 12px;
+  white-space: nowrap;
 }
 
 .field-input[readonly] {
@@ -1492,6 +1518,16 @@ input[type='checkbox']:disabled {
   color: var(--gray-500);
 }
 
+/* Qualifier for a card that doesn't follow the date range (e.g. Pending → All-time total) */
+.metric-card-note {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gray-700);
+}
+
 .status-pills {
   display: flex;
   flex-wrap: wrap;
@@ -1529,6 +1565,22 @@ input[type='checkbox']:disabled {
 
 .admin-table td .muted {
   font-size: 12px;
+}
+
+/* ── Store grid (Table View): spreadsheet-style, exact column names ── */
+.store-grid-table thead th {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.store-grid-table th:not(:first-child),
+.store-grid-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.store-grid-table tbody tr {
+  cursor: pointer;
 }
 
 /* ── Store directory (All Stores view) ── */
@@ -1630,26 +1682,6 @@ input[type='checkbox']:disabled {
 .store-card-stats span {
   font-size: 11px;
   font-weight: 600;
-  color: var(--gray-500);
-}
-
-.store-card-progress {
-  height: 6px;
-  margin-top: 14px;
-  border-radius: 999px;
-  background: var(--gray-100);
-  overflow: hidden;
-}
-
-.store-card-progress-bar {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--success);
-}
-
-.store-card-progress-label {
-  margin-top: 6px;
-  font-size: 12px;
   color: var(--gray-500);
 }
 

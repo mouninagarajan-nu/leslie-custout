@@ -135,20 +135,27 @@ export async function GET(request) {
     // A customer is "in range" if it was assigned to an employee on a day within the range.
     const dateOk = (c) => !from || !!claimInfo.get(customerKey(c))?.inRange;
 
-    const scoped = customers.filter((c) => scopeStores.has(c.store_number) && dateOk(c));
-    const body = { scope: store ? 'store' : 'all', from, to, status, metrics: metricsOf(scoped) };
+    const attemptsIn = (storeSet) =>
+      count(claims, (cl) => storeSet.has(cl.store_number) && inRange(toDateString(cl.assigned_date)));
+
+    const metricsFor = (storeSet) => {
+      const all = customers.filter((c) => storeSet.has(c.store_number));
+      return { ...metricsOf(all.filter(dateOk)), pending: count(all, isPending), total_attempts: attemptsIn(storeSet) };
+    };
+
+    const allScoped = customers.filter((c) => scopeStores.has(c.store_number));
+    const scoped = allScoped.filter(dateOk);
+    const body = { scope: store ? 'store' : 'all', from, to, status, metrics: metricsFor(scopeStores) };
 
     if (store) {
       body.store = storeDetail || { store_nbr: store };
     } else {
-      body.stores = openStores.map((s) => {
-        const matching = storesMatching(s.store_nbr);
-        return { ...s, ...metricsOf(customers.filter((c) => matching.has(c.store_number) && dateOk(c))) };
-      });
+      body.stores = openStores.map((s) => ({ ...s, ...metricsFor(storesMatching(s.store_nbr)) }));
     }
 
     if (wantContacts) {
-      const rows = scoped.filter(STATUS_FILTERS[status || 'all']).slice(0, MAX_CONTACT_ROWS + 1);
+      const source = status === 'pending' ? allScoped : scoped;
+      const rows = source.filter(STATUS_FILTERS[status || 'all']).slice(0, MAX_CONTACT_ROWS + 1);
       const employeeIds = [
         ...new Set(rows.map((r) => claimInfo.get(customerKey(r))?.latest?.employee_id).filter(Boolean))
       ];
