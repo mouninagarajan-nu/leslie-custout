@@ -10,7 +10,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000'
 const DATE_PRESETS = [
   { value: 'today', label: 'Today' },
   { value: '7d', label: 'Past 7 days' },
-  { value: '30d', label: 'Past 30 days' },
   { value: 'all', label: 'All time' },
   { value: 'custom', label: 'Custom range' }
 ];
@@ -39,8 +38,6 @@ const resolveRange = (preset, custom) => {
       return { from: daysAgo(0), to: daysAgo(0) };
     case '7d':
       return { from: daysAgo(6), to: daysAgo(0) };
-    case '30d':
-      return { from: daysAgo(29), to: daysAgo(0) };
     case 'custom':
       return custom.from && custom.to ? { from: custom.from, to: custom.to } : null;
     default:
@@ -48,18 +45,84 @@ const resolveRange = (preset, custom) => {
   }
 };
 
-// `key` is the metrics field; `status` is the API filter it drills into.
+// `key` is the metrics field; `status` is the API filter it drills into. `title` overrides the
+// default 'Total <label>' heading; `note` explains a card that doesn't follow the date range.
 const METRIC_CARDS = [
-  { key: 'total', status: 'all', label: 'Customers', icon: 'fa-users', tone: 'primary' },
+  { key: 'total', status: 'all', label: 'Customers', title: 'Customers (in range)', icon: 'fa-users', tone: 'primary' },
   { key: 'contacted', status: 'contacted', label: 'Contacted', icon: 'fa-phone-volume', tone: 'success' },
   { key: 'attempted', status: 'attempted', label: 'Attempted', icon: 'fa-phone', tone: 'info' },
   { key: 'do_not_attempt', status: 'do_not_attempt', label: 'Do Not Attempt', icon: 'fa-ban', tone: 'danger' },
-  { key: 'pending', status: 'pending', label: 'Pending', icon: 'fa-hourglass-half', tone: 'neutral' }
+  {
+    key: 'pending',
+    status: 'pending',
+    label: 'Pending',
+    note: 'All-time total',
+    tooltip: 'Every unresolved customer, regardless of the selected date range',
+    icon: 'fa-hourglass-half',
+    tone: 'neutral'
+  }
 ];
 
 const STATUS_LABELS = Object.fromEntries(
   METRIC_CARDS.map((c) => [c.status, c.status === 'all' ? 'All Customers' : c.label])
 );
+
+// Table View grid: one row per store. `header` is the exact CSV column name; on screen it is
+// shown with spaces instead of underscores. `tooltip` is header-only.
+const STORE_GRID_COLUMNS = [
+  { header: 'Store_Open', value: (s) => s.store_nbr },
+  { header: 'Total_Customers', tooltip: 'Customers assigned within the selected date range', value: (s) => s.total },
+  { header: 'Customers_Contacted', value: (s) => s.contacted },
+  { header: 'Customers_Attempted', value: (s) => s.attempted },
+  { header: 'Do_Not_Attempt_Again', value: (s) => s.do_not_attempt },
+  { header: 'Customers_Not_Started', tooltip: 'All-time total', value: (s) => s.pending },
+  { header: 'Total_Attempts', value: (s) => s.total_attempts ?? 0 }
+];
+
+const csvCell = (value) => {
+  const str = String(value ?? '');
+  return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+};
+
+const downloadCsv = (filename, columns, rows) => {
+  const lines = [
+    columns.map((c) => csvCell(c.header)).join(','),
+    ...rows.map((r) => columns.map((c) => csvCell(c.value(r))).join(','))
+  ];
+  const url = URL.createObjectURL(new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+function StoreGrid({ stores, onSelect }) {
+  return (
+    <div className="table-wrap">
+      <table className="contacts-table admin-table store-grid-table">
+        <thead>
+          <tr>
+            {STORE_GRID_COLUMNS.map((c) => (
+              <th key={c.header} title={c.tooltip}>{c.header.replace(/_/g, ' ')}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {stores.map((s) => (
+            <tr key={s.store_nbr} onClick={() => onSelect(s.store_nbr)} title={`Open store ${s.store_nbr}`}>
+              {STORE_GRID_COLUMNS.map((c, i) => (
+                <td key={c.header} className={i === 0 ? '' : 'num'}>
+                  {i === 0 ? c.value(s) : Number(c.value(s)).toLocaleString()}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 const formatAddress = (s) => {
   const cityLine = [s.city, [s.state, s.postal_code].filter(Boolean).join(' ')].filter(Boolean).join(', ');
@@ -67,8 +130,6 @@ const formatAddress = (s) => {
 };
 
 function StoreCard({ store, onSelect }) {
-  const resolved = store.total - store.pending;
-  const pct = store.total > 0 ? Math.round((resolved / store.total) * 100) : 0;
   return (
     <button type="button" className="store-card" onClick={() => onSelect(store.store_nbr)}>
       <div className="store-card-top">
@@ -89,12 +150,6 @@ function StoreCard({ store, onSelect }) {
         <div><strong>{store.attempted}</strong><span>Attempted</span></div>
         <div><strong>{store.do_not_attempt}</strong><span>Do Not Attempt</span></div>
         <div><strong>{store.pending}</strong><span>Pending</span></div>
-      </div>
-      <div className="store-card-progress" title={`${resolved} of ${store.total} resolved`}>
-        <div className="store-card-progress-bar" style={{ width: `${pct}%` }} />
-      </div>
-      <div className="store-card-progress-label">
-        {resolved.toLocaleString()} of {store.total.toLocaleString()} resolved · {pct}%
       </div>
     </button>
   );
@@ -127,6 +182,7 @@ export default function AdminClient() {
   const [statusFilter, setStatusFilter] = useState(null);
   const [datePreset, setDatePreset] = useState('7d');
   const [customRange, setCustomRange] = useState({ from: '', to: '' });
+  const [tableView, setTableView] = useState(false);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0]);
@@ -246,6 +302,14 @@ export default function AdminClient() {
   const metrics = isStale ? null : data?.metrics;
   const contacts = !isStale && Array.isArray(data?.contacts) ? data.contacts : null;
   const showRows = !state.loading && !state.error && contacts;
+  // Card/Table View only applies to the top-level summary (All Stores, no metric drill-down).
+  const isSummaryView = !isStoreView && !statusFilter;
+  const gridRows = (!isStale && data?.stores) || null;
+  const showStoreGrid = tableView && gridRows?.length > 0;
+  const csvFilename = [
+    'store-summary',
+    range?.from ? (range.from === range.to ? range.from : `${range.from}_to_${range.to}`) : 'all-time'
+  ].join('-') + '.csv';
 
   // Filter by search term, then paginate
   const searchTerm = search.trim().toLowerCase();
@@ -366,12 +430,13 @@ export default function AdminClient() {
               className={`metric-card ${card.tone}${activeStatus === card.status ? ' active' : ''}`}
               aria-pressed={activeStatus === card.status}
               onClick={() => toggleStatus(card.status)}
+              title={card.tooltip}
             >
               <div className="metric-card-icon">
                 <i className={`fa-solid ${card.icon}`} />
               </div>
               <div>
-                <div className="metric-card-label">Total {card.label}</div>
+                <div className="metric-card-label">{card.title || `Total ${card.label}`}</div>
                 <div className={`metric-card-value${state.loading ? ' refreshing' : ''}`}>
                   {metrics ? (
                     metrics[card.key].toLocaleString()
@@ -381,6 +446,7 @@ export default function AdminClient() {
                     '—'
                   )}
                 </div>
+                {card.note && <div className="metric-card-note">{card.note}</div>}
                 <div className="metric-card-sub">
                   {activeStatus === card.status ? 'Showing below' : 'Click to view'}
                 </div>
@@ -389,35 +455,79 @@ export default function AdminClient() {
           ))}
         </div>
 
-        {/* ── All stores: store directory with per-store counts ── */}
-        {!isStoreView && !statusFilter && (
+        {/* ── All stores: store directory with per-store counts (cards, or a grid in Table View) ── */}
+        {isSummaryView && (
           <div className="section-card admin-section">
             <div className="section-header">
-              <div>
-                <p className="section-label">Locations</p>
-                <h2 className="section-title">Stores</h2>
+              <div className="section-header-main">
+                <div>
+                  <p className="section-label">Locations</p>
+                  <h2 className="section-title">Stores</h2>
+                </div>
+                {/* Only on the summary (this section); the choice is kept across drill-downs. */}
+                <div className="admin-view-toggle" role="group" aria-label="Store layout">
+                  <button
+                    type="button"
+                    className={tableView ? '' : 'active'}
+                    aria-pressed={!tableView}
+                    onClick={() => setTableView(false)}
+                  >
+                    <i className="fa-solid fa-qrcode" />
+                    Card View
+                  </button>
+                  <button
+                    type="button"
+                    className={tableView ? 'active' : ''}
+                    aria-pressed={tableView}
+                    onClick={() => setTableView(true)}
+                  >
+                    <i className="fa-solid fa-table" />
+                    Table View
+                  </button>
+                </div>
               </div>
-              {!isStale && data?.stores && (
-                <span className="muted">
-                  {data.stores.length} store{data.stores.length === 1 ? '' : 's'} · click a store for details
-                </span>
-              )}
+              <div className="admin-table-actions">
+                {!isStale && data?.stores && (
+                  <span className="muted">
+                    {data.stores.length} store{data.stores.length === 1 ? '' : 's'} · click a store for details
+                  </span>
+                )}
+                {tableView && (
+                  <button
+                    type="button"
+                    className="btn outline"
+                    disabled={state.loading || !showStoreGrid}
+                    onClick={() => downloadCsv(csvFilename, STORE_GRID_COLUMNS, gridRows)}
+                  >
+                    <i className="fa-solid fa-file-csv" />
+                    Export to CSV
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="store-grid">
-              {state.loading && isStale &&
-                Array.from({ length: 3 }).map((_, i) => (
-                  <div key={`store-skel-${i}`} className="store-card skeleton">
-                    <span className="skeleton-bar" style={{ width: '40%', height: 20, display: 'block' }} />
-                    <span className="skeleton-bar" style={{ width: '75%', height: 14, display: 'block', marginTop: 12 }} />
-                    <span className="skeleton-bar" style={{ width: '90%', height: 40, display: 'block', marginTop: 16 }} />
-                  </div>
-                ))}
-              {!isStale &&
-                (data?.stores || []).map((st) => <StoreCard key={st.store_nbr} store={st} onSelect={selectStore} />)}
-              {!state.loading && !isStale && data?.stores?.length === 0 && (
-                <p className="muted" style={{ padding: 8 }}>No active stores found in store_details.</p>
-              )}
-            </div>
+            {showStoreGrid ? (
+              <StoreGrid stores={gridRows} onSelect={selectStore} />
+            ) : tableView ? (
+              <p className="muted" style={{ padding: '16px 24px' }}>
+                {state.loading ? 'Loading…' : 'No stores to show for these filters.'}
+              </p>
+            ) : (
+              <div className="store-grid">
+                {state.loading && isStale &&
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <div key={`store-skel-${i}`} className="store-card skeleton">
+                      <span className="skeleton-bar" style={{ width: '40%', height: 20, display: 'block' }} />
+                      <span className="skeleton-bar" style={{ width: '75%', height: 14, display: 'block', marginTop: 12 }} />
+                      <span className="skeleton-bar" style={{ width: '90%', height: 40, display: 'block', marginTop: 16 }} />
+                    </div>
+                  ))}
+                {!isStale &&
+                  (data?.stores || []).map((st) => <StoreCard key={st.store_nbr} store={st} onSelect={selectStore} />)}
+                {!state.loading && !isStale && data?.stores?.length === 0 && (
+                  <p className="muted" style={{ padding: 8 }}>No active stores found in store_details.</p>
+                )}
+              </div>
+            )}
           </div>
         )}
 
